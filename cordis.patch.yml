@@ -1,0 +1,14 @@
+# dsh-upkeep bundle patch.
+#
+# One Host row owns every upkeep operation; the Web Client half is declared by
+# `dsh.client` in package.json and reaches this row through the `/api/upkeep`
+# Fetch route. Reads are safe by default; writes (upgrade, push, merge) are
+# guarded by an explicit confirmation in the panel and by approval in the tool.
+- insert:
+    - id: upkeep
+      name: "@sleep9ull/dsh-upkeep"
+      config:
+        targetChannel: auto
+        checkOnStartup: true
+        concurrency: 2
+        worktreeRoot: ""

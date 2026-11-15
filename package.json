@@ -1,0 +1,78 @@
+{
+  "name": "@sleep9ull/dsh-upkeep",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness plugin: monitor your DSH plugins against the running and upcoming DSH releases, then run a targeted compatibility upgrade, verify it and open a pull request.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": "./dist/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "docs/DETAIL.md",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings-plugins",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-connection"
+      ]
+    }
+  },
+  "icon": "./icon.svg",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "compatibility",
+    "upgrade",
+    "maintenance"
+  ],
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.2-rc.1 <0.3.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.client.json",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "test": "npm run build && tsc -p tsconfig.test.json && node --test dist-test/*.test.js && node --check dist/client.js",
+    "verify": "npm run check && npm test"
+  },
+  "author": "sleep9ull",
+  "homepage": "https://github.com/sleep9ull/dsh-upkeep#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sleep9ull/dsh-upkeep.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sleep9ull/dsh-upkeep/issues"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^5.9.3"
+  }
+}

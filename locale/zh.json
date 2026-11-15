@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "兼容性管家",
+    "description": "监测你的 DeepSeek Harness 插件是否适配当前与即将发布的 DSH 版本，并把一次不兼容变成定向升级、自动验证和 PR。",
+    "detail": "docs/DETAIL.md"
+  }
+}

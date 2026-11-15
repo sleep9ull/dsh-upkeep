@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Upkeep",
+    "description": "Monitors your DeepSeek Harness plugins against the running and upcoming DSH releases, and turns a compatibility break into a targeted upgrade with verification and a pull request.",
+    "detail": "docs/DETAIL.md"
+  }
+}
