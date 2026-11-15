@@ -53,6 +53,18 @@ test('locale files carry display metadata and parse as JSON', () => {
   }
 })
 
+test('client bundle registers the fixed sidebar panel, its icon, and the settings tab', () => {
+  const client = readFileSync(new URL('../dist/client.js', import.meta.url), 'utf8')
+  // The panel id, the icon id and the settings-tab id must all agree; the sidebar
+  // owner addresses a main panel by the list id.
+  assert.match(client, /const PANEL_ID = TAB_ID/)
+  assert.match(client, /name: 'main'/)
+  assert.match(client, /name: 'sidebar\.panellist'/)
+  assert.match(client, /name: 'settings\.plugins\.tab'/)
+  assert.match(client, /id: '@sleep9ull\/dsh-upkeep'/)
+  assert.match(client, /inject: \['slots', 'locale', 'connection', 'layout'\]/)
+})
+
 test('both READMEs exist, link to each other, and ship with their license', () => {
   const english = readFileSync(new URL('../README.md', import.meta.url), 'utf8')
   const chinese = readFileSync(new URL('../README.zh.md', import.meta.url), 'utf8')

@@ -4,14 +4,17 @@ Upkeep 是 DeepSeek Harness 的插件兼容性管家。它回答一个问题：*
 
 ## 它做什么
 
-- 在 **Plugins → Upkeep** 标签页里显示运行中的 DSH 版本、当前 profile、已安装的 bundle 清单，以及每个 bundle 的版本与来源。
+- **一级侧栏面板**：在左侧面板列表里与 Plugins、Automation tasks 同级，有一个固定的 Upkeep 图标；点开是整页的状态总览。
+- **Plugins 设置页分页**：同一个视图的二级入口，页头可直接跳到一级面板。
+- 面板显示运行中的 DSH 版本、当前 profile、插件条目数，以及每个 bundle 的版本与来源。
 - 提供 `upkeep_status` 工具，让会话内的 agent 也能读取同一份状态（一个操作，两个调用方：面板与工具共用同一个 dispatcher）。
 
 ## 怎么用
 
-1. 在 Plugins 设置页打开 **Upkeep**。
-2. 点 **Refresh** 读取最新状态。
-3. 需要 agent 参与时，在会话里让它调用 `upkeep_status`。
+1. 点击左侧面板列表里的 **Upkeep** 图标，打开状态总览。
+2. 点 **刷新** 读取最新状态。
+3. 也可以从 **设置 → Plugins → Upkeep** 打开同一个视图。
+4. 需要 agent 参与时，在会话里让它调用 `upkeep_status`。
 
 ## 当前范围与限制
 

@@ -36,7 +36,7 @@
 | `src/host/state.ts` *(M1)* | `ctx.storage.domain` 持久化：`MonitorEntry`、`CompatReport`、`UpgradeRun`。 |
 | `src/host/upgrade/` *(M3)* | 迁移匹配、worktree、会话启动、验证 oracle、状态机。 |
 | `src/host/deliver/` *(M4)* | `git`/`gh`/`forge` 适配与确认门。 |
-| `src/client.ts` | Web 半：**一段编译脚本**（`module: none`，无 import/export），注册 `settings.plugins.tab`（id `dsh-upkeep`），React 由 loader 的 `require` 提供。 |
+| `src/client.ts` | Web 半：**一段编译脚本**（`module: none`，无 import/export），注册一级侧栏面板（`main` key + `sidebar.panellist` 图标，id `dsh-upkeep`）与 Plugins 设置页分页（同一 id，二级入口）；React 由 loader 的 `require` 提供。 |
 | `locale/en.json`、`locale/zh.json` | 插件展示元数据（`meta.title/description/detail`）。面板内文案在 `src/client.ts` 的 `en`/`zh` 字典。 |
 | `cordis.patch.yml` | bundle patch：插入 row `upkeep`（`@sleep9ull/dsh-upkeep`）及其 config。 |
 | `test/*.test.ts` | 对 `dist/` 运行的单测（`npm test` 先构建）。 |
@@ -83,7 +83,7 @@
 3. 用 `cordis_inspect_query` 验证活面：
    - Host `Tool.listTools` → `upkeep_status` 在列；
    - Host `Config.listConfigs`（按 name 过滤）→ `upkeep` 行存在；
-   - Client `Slots.listSubTree` → `settings.plugins.tab` 的 occupant `dsh-upkeep` 且 `active: true`。客户端查询超时通常是页面未连接：刷新 GUI 再试。
+   - Client `Slots.listSubTree` → `sidebar.panellist` 的 id `dsh-upkeep`、`main` 的 key `dsh-upkeep`、`settings.plugins.tab` 的 occupant `dsh-upkeep` 三者都 `active: true`。客户端查询超时通常是页面未连接：刷新 GUI 再试。
 4. 路由自检：**面板能拿到数据才是路由存在的证据**。未认证的 `POST /api/upkeep/status` 会返回 `401`，但那只证明 `/api` 栅栏生效——任意 `/api/*` 路径（包括不存在的）未认证都返回 401，所以 401 不能证明路由已注册。两条信号都要看。
 5. 真实数据自检：调用 `upkeep_status`，确认 `dsh.runtimeVersion` 与安装版一致、`bundles` 非空。
 6. 只有面板渲染出真实状态后才算视觉验证完成；渲染崩溃会在控制台出现 `slot entry crashed in '<slot>'`，读它。

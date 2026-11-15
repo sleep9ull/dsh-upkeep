@@ -102,6 +102,8 @@ type ClientContext = {
   connection: {
     rpc: { call(channel: string, endpoint: string, payload: unknown, signal?: AbortSignal): Promise<WireReply> }
   }
+  /** Panel navigation; present whenever the shell is mounted. */
+  layout: { selectPanel(panelId: string): void }
   locale: LocaleService
   slots: {
     inject(key: string, callback: () => unknown, label: string): unknown
@@ -131,10 +133,16 @@ interface Window {
       const h: CreateElement = React.createElement
 
       const NS = 'upkeep'
+      /** Settings-tab cell id; the main panel reuses it so both entries address one thing. */
       const TAB_ID = 'dsh-upkeep'
+      /** First-level sidebar panel id: the `main` key and the `sidebar.panellist` icon id agree. */
+      const PANEL_ID = TAB_ID
 
       const en: Record<string, string> = {
         tab: 'Upkeep',
+        panel: 'Upkeep',
+        openPanel: 'Open panel',
+        panelSubtitle: 'What this installation runs, and which plugins it loaded.',
         title: 'Plugin compatibility',
         subtitle: 'What this installation runs, and which plugins it loaded.',
         refresh: 'Refresh',
@@ -161,6 +169,9 @@ interface Window {
 
       const zh: Record<string, string> = {
         tab: '兼容性管家',
+        panel: '兼容性管家',
+        openPanel: '打开面板',
+        panelSubtitle: '当前安装运行的版本，以及它加载了哪些插件。',
         title: '插件兼容性',
         subtitle: '当前安装运行的版本，以及它加载了哪些插件。',
         refresh: '刷新',
@@ -191,6 +202,14 @@ interface Window {
 [data-upkeep] .upkeep-title { margin: 0; font-size: 14px; line-height: 1.35; }
 [data-upkeep] .upkeep-subtitle { margin: 2px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.5; }
 [data-upkeep] .upkeep-actions { display: flex; gap: 8px; flex: none; }
+[data-upkeep] .upkeep-tab-inner, [data-upkeep] .upkeep-page-inner { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+[data-upkeep] .upkeep-page-inner { gap: 14px; width: 100%; max-width: 1080px; margin: 0 auto; padding: 24px 28px 40px; box-sizing: border-box; }
+[data-upkeep].upkeep-page { height: 100%; overflow: auto; }
+[data-upkeep].upkeep-page .upkeep-title { font-size: 18px; }
+[data-upkeep].upkeep-page .upkeep-subtitle { font-size: 13px; }
+[data-upkeep].upkeep-page .upkeep-grid { grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; }
+[data-upkeep].upkeep-page .upkeep-table { font-size: 13px; }
+[data-upkeep] .upkeep-btn[data-variant="primary"] { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); }
 [data-upkeep] .upkeep-btn { padding: 4px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md, 6px); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-size: 12px; line-height: 1.5; cursor: pointer; }
 [data-upkeep] .upkeep-btn:hover:not([disabled]) { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); }
 [data-upkeep] .upkeep-btn[disabled] { opacity: 0.55; cursor: default; }
@@ -310,10 +329,11 @@ interface Window {
        * Tab body
        * ------------------------------------------------------------------ */
 
-      type TabProps = { store: Store; t: Translate; locale: string }
+      type TabProps = { store: Store; t: Translate; locale: string; openPanel?: () => void }
 
-      function TabBody(props: TabProps): Child {
-        const { store, t, locale } = props
+      function StatusView(props: TabProps & { variant: 'tab' | 'panel' }): Child {
+        const { store, t, locale, openPanel } = props
+        const page = props.variant === 'panel'
         const state = React.useSyncExternalStore(store.subscribe, store.get)
         const ready = state.phase === 'ready'
         const loading = state.phase === 'loading'
@@ -365,24 +385,91 @@ interface Window {
                     h('td', { className: 'upkeep-num upkeep-mono' }, typeof bundle.rowCount === 'number' ? String(bundle.rowCount) : '—'))
                 })))
 
-        return h('div', { 'data-upkeep': '', 'data-upkeep-ready': ready ? 'true' : 'false' },
+        const actions = h('div', { className: 'upkeep-actions' },
+          !page && openPanel
+            ? h('button', { className: 'upkeep-btn upkeep-btn-primary', type: 'button', onClick: openPanel }, t('openPanel'))
+            : null,
+          h('button', {
+            className: 'upkeep-btn',
+            type: 'button',
+            disabled: loading,
+            onClick: () => { void store.refresh() },
+          }, loading ? t('loading') : t('refresh')))
+
+        return h('div', {
+          'data-upkeep': '',
+          'data-upkeep-ready': ready ? 'true' : 'false',
+          className: page ? 'upkeep-page' : '',
+        },
           h('style', null, CSS),
-          h('div', { className: 'upkeep-head' },
-            h('div', null,
-              h('h3', { className: 'upkeep-title' }, t('title')),
-              h('p', { className: 'upkeep-subtitle' }, t('subtitle'))),
-            h('div', { className: 'upkeep-actions' },
-              h('button', {
-                className: 'upkeep-btn',
-                type: 'button',
-                disabled: loading,
-                onClick: () => { void store.refresh() },
-              }, loading ? t('loading') : t('refresh')))),
-          failure,
-          warning,
-          h('dl', { className: 'upkeep-grid' }, ...summary.flatMap(([label, value]) => [h('dt', { key: 'dt-' + label }, label), h('dd', { key: 'dd-' + label }, value)])),
-          h('div', { className: 'upkeep-mono' }, data && typeof data.checkedAt === 'number' ? relativeTime(data.checkedAt, locale) : ''),
-          table)
+          h('div', { className: page ? 'upkeep-page-inner' : 'upkeep-tab-inner' },
+            h('div', { className: 'upkeep-head' },
+              h('div', null,
+                page ? h('h2', { className: 'upkeep-title' }, t('title')) : h('h3', { className: 'upkeep-title' }, t('title')),
+                h('p', { className: 'upkeep-subtitle' }, page ? t('panelSubtitle') : t('subtitle'))),
+              actions),
+            failure,
+            warning,
+            h('dl', { className: 'upkeep-grid' }, ...summary.flatMap(([label, value]) => [h('dt', { key: 'dt-' + label }, label), h('dd', { key: 'dd-' + label }, value)])),
+            h('div', { className: 'upkeep-mono' }, data && typeof data.checkedAt === 'number' ? relativeTime(data.checkedAt, locale) : ''),
+            table))
+      }
+
+      function TabBody(props: TabProps): Child {
+        return StatusView({ ...props, variant: 'tab' })
+      }
+
+      function PanelPage(props: TabProps): Child {
+        return StatusView({ ...props, variant: 'panel' })
+      }
+
+      /** The sidebar panel glyph: a shield with two cycle arrows, drawn in the host's text color. */
+      function PanelIcon(props: { size?: number; active?: boolean }): Child {
+        const size = typeof props.size === 'number' && props.size > 0 ? props.size : 18
+        const opacity = props.active === true ? '1' : '0.88'
+        return h('svg', {
+          width: String(size),
+          height: String(size),
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          'aria-hidden': 'true',
+          focusable: 'false',
+          style: { display: 'block', opacity },
+        },
+          h('path', {
+            d: 'M12 2.9 19.3 5.7v5.7c0 4.3-2.9 7.6-7.3 9-4.4-1.4-7.3-4.7-7.3-9V5.7L12 2.9Z',
+            stroke: 'currentColor',
+            'stroke-width': '1.6',
+            'stroke-linejoin': 'round',
+          }),
+          h('path', {
+            d: 'M15.5 9.2a3.9 3.9 0 0 0-6.5.5',
+            stroke: 'currentColor',
+            'stroke-width': '1.5',
+            'stroke-linecap': 'round',
+          }),
+          h('path', {
+            d: 'M8.7 7.7v2.4h2.4',
+            stroke: 'currentColor',
+            'stroke-width': '1.5',
+            'stroke-linecap': 'round',
+            'stroke-linejoin': 'round',
+          }),
+          h('path', {
+            d: 'M8.5 14.8a3.9 3.9 0 0 0 6.5-.5',
+            stroke: 'currentColor',
+            'stroke-width': '1.5',
+            'stroke-linecap': 'round',
+            opacity: '0.65',
+          }),
+          h('path', {
+            d: 'M15.3 16.3v-2.4h-2.4',
+            stroke: 'currentColor',
+            'stroke-width': '1.5',
+            'stroke-linecap': 'round',
+            'stroke-linejoin': 'round',
+            opacity: '0.65',
+          }))
       }
 
       /* ------------------------------------------------------------------ *
@@ -393,15 +480,42 @@ interface Window {
         const store = createStore(ctx)
         const t = ctx.locale.bind(NS)
 
+        const openPanel = (): void => {
+          try {
+            ctx.layout.selectPanel(PANEL_ID)
+          } catch {
+            // The panel may not be mounted yet; the sidebar entry remains.
+          }
+        }
+
         ctx.effect(() => ctx.locale.register(NS, { en, zh }), 'upkeep: locale')
 
+        // The first-level panel is the primary entry: an icon in the sidebar panel
+        // list and a page in the center column, keyed by the same id.
+        ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+          name: 'sidebar.panellist',
+          id: PANEL_ID,
+          order: 30,
+          label: () => t('panel'),
+          locale: NS,
+        }, PanelIcon), 'upkeep: sidebar panel icon')
+
+        ctx.slots.inject('main', () => ctx.slots.register({
+          name: 'main',
+          key: PANEL_ID,
+          locale: NS,
+          inject: () => ({ store, t, locale: localeOf(ctx) }),
+        }, PanelPage), 'upkeep: main panel')
+
+        // The Plugins settings tab stays as the secondary entry, reachable from the
+        // plugin manager page where plugin authors already are.
         ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
           name: 'settings.plugins.tab',
           id: TAB_ID,
           order: 40,
           label: () => t('tab'),
           locale: NS,
-          inject: () => ({ store, t, locale: localeOf(ctx) }),
+          inject: () => ({ store, t, locale: localeOf(ctx), openPanel }),
         }, TabBody), 'upkeep: settings tab')
       }
 
@@ -416,7 +530,7 @@ interface Window {
       }
 
       return {
-        inject: ['slots', 'locale', 'connection'],
+        inject: ['slots', 'locale', 'connection', 'layout'],
         apply,
       }
     },

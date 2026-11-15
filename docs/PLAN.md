@@ -192,7 +192,7 @@ ELECTRON_RUN_AS_NODE=1 "$DSH_NODE_EXECUTABLE" "$DSH_INSTALL_DIR/lib/bin.js" --ve
 | D3 | **升级执行模型** | 升级在**独立会话**中执行（cwd = 被测仓库或 worktree），Host 负责准备、验证、交付 | 可审批、可中断、可追踪；避免 Host 直接改文件绕过 DSH 的权限模型 |
 | D4 | **无人值守边界** | agent 可以改代码、跑测试；**交付必须人工确认**；默认 PR，不自动 merge | 子 agent 审批固定 `never`；越界写操作与凭据访问本就该由人确认 |
 | D5 | **前后端通道** | 沿用 asc-hub 模式：Host `ctx.connection.fetch.register` 一组 `/api/upkeep/<action>` + Client `ctx.connection.rpc.call` | 已在本机生产验证；自带 owner 栅栏；不做 Typert 代码生成，避免与 DSH 版本强耦合 |
-| D6 | **UI 落点** | 主界面 = `settings.plugins.tab`（Plugins 设置页内新分页）；常驻提示 = `shell.overlay`/`sidebar.footer.action` 角标；不做 iframe | 插件管理天然在 Plugins 设置页；slots 是唯一稳定 UI 扩展面 |
+| D6 | **UI 落点** | 主入口 = **一级侧栏面板**（`main` + `sidebar.panellist`，与 Plugins / Automation tasks 同级）；设置页分页作为二级入口；常驻提示 = `shell.overlay`/footer 角标；不做 iframe | 一级面板才够"明显"；slots 是唯一稳定 UI 扩展面，`MainPanelId` 是开放 brand，第三方插件可注册 |
 | D7 | **状态存储** | 策略/通道/命令模板放插件 `Config`；监测清单、检查历史、升级运行记录放 `ctx.storage.domain` | Config 便于用户手改与随 patch 升级；动态数据需要 schema 校验与 `domain/changed` 事件 |
 | D8 | **升级知识来源** | 本地 `docs/upgrade-guide` 为主；目标版本比安装版新时按 GitHub tag 拉取；持久化变化用 `persistence-schema.json` diff | 唯一权威、结构规整、可离线；GitHub tag 已验证可用 |
 | D9 | **对 DSH 内部 API 的依赖** | 核心判定逻辑 **vendor** 一份（约 40 行）+ 运行时能力探测；只把 `ctx.*` 服务当稳定 API | app-boot 无稳定性承诺且形状变过；vendor 保证插件自身不会因内部 API 变化而崩 |
@@ -323,11 +323,13 @@ idle
 
 ---
 
-## 5. UI 信息架构（规划）
+## 5. UI 信息架构
 
-**Upkeep 设置页（`settings.plugins.tab`）**
+**主入口：一级侧栏面板（`main` key = `sidebar.panellist` id = `dsh-upkeep`）**
 
-- 顶部状态条：运行 DSH 版本、目标版本（通道 + 时间）、上次检查时间、「立即检查」。
+与 Plugins、Automation tasks 同级：侧栏面板列表里固定一个 Upkeep 图标（原创盾牌+循环箭头），点击进入中央栏整页。整页内容：
+
+- 页头：标题、说明、运行 DSH 版本 / 目标版本（通道 + 时间）/ 上次检查时间、「立即检查」。
 - 插件列表：名称 / 版本 / 状态徽标（兼容 / 声明不兼容 / 运行失败 / 未知）/ 受影响条目数 / 最近检查 / 主操作（查看原因、升级、设为忽略）。
 - 详情抽屉：
   - 判定详情（`engines.dsh` 范围 vs 运行/目标版本，peer 明细，豁免状态）；
@@ -337,10 +339,14 @@ idle
 - 升级运行面板：阶段时间线、会话链接、实时输出摘要、diff stat、测试结果、`创建 PR` / `合并到 main` / `放弃`。
 - 任务区：当前定时任务、创建预设（每天/每周/仅当有新版本时）、目标工作区。
 
-**常驻提示**
+**二级入口：Plugins 设置页分页（`settings.plugins.tab`，id `dsh-upkeep`）**
 
-- `shell.overlay`：有 `needs-attention` 插件时显示一条轻量提示（可关闭，按检查批次去重）。
-- `sidebar.footer.action`：入口图标 + 角标数字。
+插件作者本来就在 Plugins 页面，保留同一份视图；页头带「打开面板」按钮，通过 `ctx.layout.selectPanel(PANEL_ID)` 跳到一级面板。两个入口共享同一个 store 与 dispatcher，不产生第二份数据逻辑。
+
+**常驻提示（M1 末）**
+
+- `shell.overlay`：有 `needs-attention` 插件时显示一条轻量提示（可关闭，按检查批次去重）；侧栏图标旁可加角标。
+- `sidebar.footer.action`：可选的二级快捷入口 + 角标数字。
 
 **列表管理参考**：样式与交互对齐 DSH 自带 Plugins 页（`@deepseek-ai/dsh-client-ui-plugin-manager`），主题 token 用 `--dsw-alias-*`，文案走 `ctx.locale`。
 
@@ -354,9 +360,9 @@ idle
 
 - 复制 asc-hub 工程规范：`tsc` 双配置、`dist/`、`cordis.patch.yml`、`locale`、`icon.svg`、`engines.dsh`、`dsh.client`。
 - Host 半：`inject: ['connection']`，注册 1 个 `/api/upkeep/status` + 1 个 `upkeep_status` 工具，返回 `{ runtimeVersion, bundleCount }`。
-- Client 半：在 `settings.plugins.tab` 注册一页，显示上述数据。
+- Client 半：注册一级侧栏面板（`main` + `sidebar.panellist`）作为主入口，同时在 `settings.plugins.tab` 保留一个二级分页；两者显示同一份数据。
 - 打通 CLI 实验台：`dsh --profile <tmp> --dump-config`、`dsh headless`；确认 pnpm 获取方式（`load_workspace_dependencies` / corepack / npm i -g）。
-- **验收**：安装到本地 profile 后，设置页显示正确版本；RPC 未授权时 401/403；卸载后无残留；`node --test` 冒烟通过。
+- **验收**：安装到本地 profile 后，侧栏出现 Upkeep 图标、点击进入面板显示正确版本；设置页分页可见；RPC 未授权时 401/403；卸载后无残留；`node --test` 冒烟通过。
 
 ### M1 监测清单 + 检查引擎 + 只读 UI（6–9 天）
 
@@ -464,7 +470,7 @@ idle
 
 | 决策点 | 结论 |
 |---|---|
-| 主入口 | **Plugins 设置页新增 Upkeep 分页 + 侧边栏角标**（不做独立右侧栏面板） |
+| 主入口 | **一级侧栏面板（`main` + `sidebar.panellist`，与 Plugins 同级）+ 设置页分页作为二级入口**；角标在 M1 末加 |
 | 监测范围 | **本机仓库为主**；已安装但无仓库的插件只报告（提示升级到兼容版本 / 申请豁免），不改其 `node_modules` |
 | 交付默认 | **默认创建 PR，不自动合并**；合并 main 仅作为显式开关 + 每次确认 |
 | 下一步 | **先做 M0 + M1（脚手架 + 只读监测）** |
@@ -485,12 +491,21 @@ idle
 |---|---|
 | 工程规范 | 沿用 asc-hub：双 `tsconfig`、`dist/`、`cordis.patch.yml`、`dsh.bundle.patch` + `dsh.client`、`engines.dsh`、locale（en/zh）、icon、`docs/DETAIL.md` |
 | Host 半 | `src/index.ts`（`inject: ['connection']`）→ `host/dispatch.ts`（Hub，action `status` / `bundles.list`）→ `host/rpc.ts`（`/api/upkeep/<action>`）+ `host/tool.ts`（`upkeep_status`） |
-| Client 半 | `src/client.ts` 纯浏览器脚本，注册 `settings.plugins.tab`（id `dsh-upkeep`，order 40），拉取 RPC 并渲染版本/Profile/Bundle 表 |
+| Client 半 | `src/client.ts` 纯浏览器脚本：注册一级面板（`main` key + `sidebar.panellist` 图标）与设置页分页（id `dsh-upkeep`，order 40），两者共享同一 store，拉取 RPC 渲染版本/Profile/Bundle 表 |
 | 构建与测试 | `npm test`：15 个单测通过（semver 比较、Config 归一化、Hub 状态投影、manifest/locale/patch 契约）+ `node --check dist/client.js` |
 | 安装 | `plugin_manager install_bundle` → `application: applied`，bundle `@sleep9ull/dsh-upkeep@0.1.0`（`link:` 指向本仓库） |
 | Host 激活 | `upkeep_status` 工具已注册并可调用，返回运行版 `0.2.2-rc.3`、profile `desktop`、207 个插件条目、28 个 bundle |
-| Client 激活 | `cordis_inspect_query`（Client `Slots.listSubTree`）确认 `settings.plugins.tab` 的 occupant `dsh-upkeep`，`active: true` |
-| 未验证 | 分页的**实际渲染**（需要刷新页面/截图；本会话无浏览器控制）。请刷新 GUI 后到 Plugins 设置页确认 |
+| Client 激活 | `cordis_inspect_query`（Client `Slots.listSubTree`）确认 `settings.plugins.tab` 的 occupant `dsh-upkeep` 与 `sidebar.panellist` 的 id `dsh-upkeep` 均为 `active: true`，`main` 面板注册后即可从侧栏打开 |
+| 未验证 | 面板的**实际渲染**（需要刷新页面/截图；本会话无浏览器控制）。刷新 GUI 后侧栏应出现 Upkeep 图标，点击进入整页面板；设置页分页作为二级入口保留 |
+
+### M0.1 主入口改为一级面板（2026-11-15）
+
+用户反馈"设置页里的分页不够明显"，主入口调整为一级侧栏面板：
+
+- 注册 `main`（key = `dsh-upkeep`）+ `sidebar.panellist`（id 相同，order 30，图标收 `{size, active}`），与 Plugins / Automation tasks 同级；
+- 设置页分页保留为二级入口，页头加「打开面板」（`ctx.layout.selectPanel(PANEL_ID)`）；
+- 两个入口共享同一个 store 与 dispatcher；客户端注入新增 `layout`；
+- 文档同步：PLAN §5 / §10 / D6，AGENTS.md Layout 与验证步骤，README（英/中）与 DETAIL。
 
 **真机发现（可直接作为 M1 第一批监测对象）**：当前 profile 已有两个真实的不兼容 bundle——
 
