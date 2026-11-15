@@ -76,6 +76,7 @@ dsh plugin --profile <profile> add /absolute/path/to/dsh-upkeep
 - 页头显示标题，以及唯一的按钮 **刷新**。
 - 摘要区显示运行中的 DSH 版本、profile 名称、活跃插件条目数、已安装 bundle 数。
 - bundle 表格逐行给出名称、版本、状态（已启用 / 已禁用 / 加载失败）、来源可用性与行数。
+- 官方 `@deepseek-ai/*` 包属于 DSH 本身，不会出现在监测列表里；摘要区会说明排除了多少 bundle 与插件条目，不会让人以为漏了数据。
 - 某个事实读不到时，用行内提示说明原因（例如 plugin-manager 服务未挂载）。读不到的值显示为"未知 + 原因"，不做猜测。
 
 ### `upkeep_status` 工具

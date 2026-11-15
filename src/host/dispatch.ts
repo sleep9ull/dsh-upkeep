@@ -27,6 +27,18 @@ const OWN_VERSION = (() => {
 /** The package name the client module and the Loader row share. */
 export const PACKAGE_NAME = '@sleep9ull/dsh-upkeep'
 
+/**
+ * Packages in this npm scope are the Harness itself. They ship inside the
+ * running DSH and follow its version, so they are never the plugin author's
+ * subject: the monitor excludes them instead of reporting them as compatible.
+ */
+const OFFICIAL_SCOPE = '@deepseek-ai/'
+
+/** Whether a package name belongs to the official DSH scope. */
+export function isOfficialPackage(name: string): boolean {
+  return name.startsWith(OFFICIAL_SCOPE)
+}
+
 /** How the plugin was configured in its Loader row. */
 export interface HubConfig {
   /** Which DSH release channel the monitor compares against; `auto` follows the Desktop update channel. */
@@ -100,6 +112,8 @@ export interface StatusSnapshot {
   profile: { name: string | null; dir: string | null }
   bundles: BundleSummary[]
   plugins: { entryCount: number | null }
+  /** Official DSH packages left out of the monitored view, reported instead of hidden. */
+  excluded: { bundles: number; entries: number }
   warnings: string[]
 }
 
@@ -152,15 +166,29 @@ function summarizeBundle(value: unknown): BundleSummary | undefined {
   }
 }
 
-/** Count live plugin entries when the inventory service is mounted. */
-async function countPluginEntries(ctx: HostContext): Promise<number | null> {
+/** Live plugin-entry counts, split into what the monitor watches and what it excludes. */
+interface EntryCounts {
+  monitored: number | null
+  excluded: number
+}
+
+/** Count live plugin entries, excluding the rows of official DSH packages. */
+async function countPluginEntries(ctx: HostContext): Promise<EntryCounts> {
   const value = ctx.get('pluginManager')
-  if (!isRecord(value) || typeof value.listPlugins !== 'function') return null
+  if (!isRecord(value) || typeof value.listPlugins !== 'function') return { monitored: null, excluded: 0 }
   try {
     const entries: unknown = await (value.listPlugins as () => Promise<unknown>).call(value)
-    return Array.isArray(entries) ? entries.length : null
+    if (!Array.isArray(entries)) return { monitored: null, excluded: 0 }
+    let monitored = 0
+    let excluded = 0
+    for (const entry of entries) {
+      const moduleName = isRecord(entry) && typeof entry.moduleName === 'string' ? entry.moduleName : ''
+      if (isOfficialPackage(moduleName)) excluded += 1
+      else monitored += 1
+    }
+    return { monitored, excluded }
   } catch {
-    return null
+    return { monitored: null, excluded: 0 }
   }
 }
 
@@ -181,10 +209,13 @@ export function createHub(ctx: HostContext, config: HubConfig): Hub {
     if (runtime.version === null) warnings.push('The running DSH version could not be read from the profile installation anchor.')
 
     let bundles: BundleSummary[] = []
+    let excludedBundles = 0
     if (manager) {
       try {
         const listed = await manager.listBundles()
-        bundles = listed.map(summarizeBundle).filter((entry): entry is BundleSummary => entry !== undefined)
+        const summaries = listed.map(summarizeBundle).filter((entry): entry is BundleSummary => entry !== undefined)
+        bundles = summaries.filter(entry => !isOfficialPackage(entry.name))
+        excludedBundles = summaries.length - bundles.length
       } catch (error) {
         warnings.push(`Installed bundles could not be listed: ${errorMessage(error) ?? 'unknown error'}`)
       }
@@ -192,13 +223,16 @@ export function createHub(ctx: HostContext, config: HubConfig): Hub {
       warnings.push('The plugin manager service is not mounted; installed bundles are unknown.')
     }
 
+    const entries = await countPluginEntries(ctx)
+
     return {
       checkedAt: Date.now(),
       plugin: { name: PACKAGE_NAME, version: OWN_VERSION },
       dsh: { runtimeVersion: runtime.version, installAnchor: runtime.anchor },
       profile: { name: profile?.name ?? null, dir: profile?.dir ?? null },
       bundles,
-      plugins: { entryCount: await countPluginEntries(ctx) },
+      plugins: { entryCount: entries.monitored },
+      excluded: { bundles: excludedBundles, entries: entries.excluded },
       warnings,
     }
   }
@@ -211,10 +245,10 @@ export function createHub(ctx: HostContext, config: HubConfig): Hub {
     },
     'bundles.list': {
       kind: 'read',
-      description: 'Installed bundles with their version, source availability and load error.',
+      description: 'Monitored (non-official) bundles with their version, source availability and load error.',
       run: async (_input, call) => {
         const status = await snapshot(call)
-        return { checkedAt: status.checkedAt, bundles: status.bundles }
+        return { checkedAt: status.checkedAt, bundles: status.bundles, excluded: status.excluded }
       },
     },
   }

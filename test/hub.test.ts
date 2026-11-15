@@ -4,7 +4,7 @@ import { createHub, normalizeConfig } from '../dist/host/dispatch.js'
 import type { HostContext } from '../dist/host/types.js'
 
 /** A fake Host context exposing only the services a status read touches. */
-function fakeContext(overrides: { bundles?: unknown[]; installAnchor?: string; failBundles?: boolean } = {}): HostContext {
+function fakeContext(overrides: { bundles?: unknown[]; plugins?: unknown[]; installAnchor?: string; failBundles?: boolean } = {}): HostContext {
   return {
     get(name: string) {
       if (name === 'profileContext') {
@@ -20,7 +20,7 @@ function fakeContext(overrides: { bundles?: unknown[]; installAnchor?: string; f
             if (overrides.failBundles === true) throw new Error('manager unavailable')
             return overrides.bundles ?? []
           },
-          listPlugins: async () => [{}, {}, {}],
+          listPlugins: async () => overrides.plugins ?? [{}, {}, {}],
         }
       }
       return undefined
@@ -71,10 +71,45 @@ test('status degrades with warnings instead of throwing', async () => {
   assert.match(status.warnings[0] ?? '', /could not be listed/)
 })
 
+test('official @deepseek-ai packages are excluded and reported, not silently dropped', async () => {
+  const hub = createHub(fakeContext({
+    bundles: [
+      { name: '@deepseek-ai/dsh-base', version: '0.2.2-rc.3', enabled: true, rows: [{}, {}] },
+      { name: 'dsh-context', version: '0.84.1', enabled: true, rows: [{}] },
+    ],
+    plugins: [
+      { moduleName: '@deepseek-ai/dsh-tool-bash' },
+      { moduleName: '@deepseek-ai/dsh-web' },
+      { moduleName: 'dsh-context' },
+    ],
+  }), normalizeConfig(undefined))
+
+  const status = await hub.call('status', {}, { caller: 'client' }) as {
+    bundles: Array<{ name: string }>
+    plugins: { entryCount: number | null }
+    excluded: { bundles: number; entries: number }
+  }
+
+  // The official bundle never appears in the monitored list, and the counts say
+  // exactly what was left out.
+  assert.deepEqual(status.bundles.map(bundle => bundle.name), ['dsh-context'])
+  assert.equal(status.plugins.entryCount, 1)
+  assert.deepEqual(status.excluded, { bundles: 1, entries: 2 })
+})
+
 test('bundles.list projects the same bundle summaries', async () => {
-  const hub = createHub(fakeContext({ bundles: [{ name: '@example/a', version: '1.0.0', enabled: true, rows: [] }] }), normalizeConfig(undefined))
-  const listed = await hub.call('bundles.list', {}, { caller: 'client' }) as { bundles: Array<{ name: string }> }
+  const hub = createHub(fakeContext({
+    bundles: [
+      { name: '@example/a', version: '1.0.0', enabled: true, rows: [] },
+      { name: '@deepseek-ai/dsh-base', version: '0.2.2-rc.3', enabled: true, rows: [] },
+    ],
+  }), normalizeConfig(undefined))
+  const listed = await hub.call('bundles.list', {}, { caller: 'client' }) as {
+    bundles: Array<{ name: string }>
+    excluded: { bundles: number; entries: number }
+  }
   assert.deepEqual(listed.bundles.map(bundle => bundle.name), ['@example/a'])
+  assert.equal(listed.excluded.bundles, 1)
 })
 
 test('unknown actions fail with a stable code', async () => {

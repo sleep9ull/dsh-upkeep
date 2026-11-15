@@ -68,6 +68,7 @@ type StatusSnapshot = {
   profile?: { name?: string | null; dir?: string | null }
   bundles?: BundleSummary[]
   plugins?: { entryCount?: number | null }
+  excluded?: { bundles?: number; entries?: number }
   warnings?: string[]
 }
 
@@ -161,6 +162,8 @@ interface Window {
         enabled: 'enabled',
         disabled: 'disabled',
         failed: 'load error',
+        excluded: 'Excluded',
+        officialRule: 'Official @deepseek-ai packages ship with DSH and are not monitored.',
         empty: 'No bundles were reported.',
         warnings: 'Warnings',
         notConnected: 'The panel is not connected to the Host yet.',
@@ -190,6 +193,8 @@ interface Window {
         enabled: '已启用',
         disabled: '已禁用',
         failed: '加载失败',
+        excluded: '已排除',
+        officialRule: '官方 @deepseek-ai 插件随 DSH 发布，不纳入监测。',
         empty: '没有读取到任何 bundle。',
         warnings: '提示',
         notConnected: '面板尚未连接到 Host。',
@@ -228,6 +233,7 @@ interface Window {
 [data-upkeep] .upkeep-warn { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border: 1px solid var(--dsw-alias-state-warn-primary); border-radius: var(--dsw-radius-md, 6px); font-size: 11px; line-height: 1.5; }
 [data-upkeep] .upkeep-error { padding: 8px 10px; border: 1px solid var(--dsw-alias-state-error-primary); border-radius: var(--dsw-radius-md, 6px); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 [data-upkeep] .upkeep-empty { color: var(--dsw-alias-label-secondary); font-size: 12px; }
+[data-upkeep] .upkeep-note { color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.5; }
 @media (max-width: 520px) {
   [data-upkeep] .upkeep-head { flex-wrap: wrap; }
 }
@@ -351,6 +357,15 @@ interface Window {
           [t('bundles'), h('span', { className: 'upkeep-mono' }, data && data.bundles ? String(data.bundles.length) : '0')],
         ]
 
+        // Official DSH packages are reported, not hidden: the counts say what the list leaves out.
+        const excluded = data && data.excluded ? data.excluded : null
+        const excludedBundles = excluded && typeof excluded.bundles === 'number' ? excluded.bundles : 0
+        const excludedEntries = excluded && typeof excluded.entries === 'number' ? excluded.entries : 0
+        if (excludedBundles > 0 || excludedEntries > 0) {
+          summary.push([t('excluded'), h('span', { className: 'upkeep-mono' },
+            String(excludedBundles) + ' ' + t('bundles') + ' · ' + String(excludedEntries) + ' ' + t('entries'))])
+        }
+
         const warning = data && Array.isArray(data.warnings) && data.warnings.length > 0
           ? h('div', { className: 'upkeep-warn', role: 'status' },
               h('strong', null, t('warnings')),
@@ -412,6 +427,7 @@ interface Window {
             warning,
             h('dl', { className: 'upkeep-grid' }, ...summary.flatMap(([label, value]) => [h('dt', { key: 'dt-' + label }, label), h('dd', { key: 'dd-' + label }, value)])),
             h('div', { className: 'upkeep-mono' }, data && typeof data.checkedAt === 'number' ? relativeTime(data.checkedAt, locale) : ''),
+            h('div', { className: 'upkeep-note' }, t('officialRule')),
             table))
       }
 

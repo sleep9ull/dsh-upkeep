@@ -76,6 +76,7 @@ The panel answers one question first: **what is this installation actually runni
 - The header shows the page title and gives you one button, **Refresh**.
 - The summary block shows the running DSH version, the profile name, the number of live plugin entries, and how many bundles are installed.
 - The bundle table lists each bundle with its version, state (`enabled`, `disabled`, `load error`), source availability and row count.
+- Official `@deepseek-ai/*` packages are part of DSH and never appear in the monitored list; the summary reports how many bundles and plugin entries were excluded, so nothing looks missing.
 - Warnings appear inline when a fact could not be read, for example when the plugin-manager service is not mounted. An unreadable value is reported as unknown with its reason, never guessed.
 
 ### `upkeep_status` tool

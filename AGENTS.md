@@ -8,7 +8,7 @@
 
 | 何时读 | 文档 |
 |---|---|
-| 要改**范围、优先级、验收标准**，或怀疑某个设计决定 | [docs/PLAN.md](docs/PLAN.md) —— 范围与 12 个设计决策的唯一来源；改范围先改这里 |
+| 要改**范围、优先级、验收标准**，或怀疑某个设计决定 | [docs/PLAN.md](docs/PLAN.md) —— 范围与设计决策（D1–D13）的唯一来源；改范围先改这里 |
 | 要断言**任何 DSH 行为**（服务、事件、字段、版本语义、CLI 参数） | [docs/EVIDENCE.md](docs/EVIDENCE.md) —— 已核实事实；新结论先补证据再写代码 |
 | 要改 **Host↔Client 线协议**（路由、信封、错误码） | [src/host/rpc.ts](src/host/rpc.ts) 头部注释 —— 线协议当前权威；若它长大到需要独立文件，拆成 `docs/CONTRACT.md` 并在两处同步 |
 | 要新增/修改 **Host 插件面**（manifest、patch、locale、icon、导出） | `dsh-doc` 技能的 `references/host-plugin.md`、`references/ui-plugin.md`、`references/plugin-development.md` |
@@ -63,6 +63,7 @@
 10. **监测是拉取式的（M1+）。** DSH 没有 Host→浏览器推送；状态由面板按需拉取，后台检查把结果写进存储，通知靠客户端半渲染。*检查：* 关闭面板时检查仍可运行并落库；打开面板后无需重启即可读到。
 11. **升级在会话里发生（M3+）。** 被测仓库的代码由会话中的 agent 编辑（可选 worktree）；Host 负责准备、验证、交付。已安装 profile 的 `node_modules` 是只读输入。*检查：* 升级运行记录带 `sessionId`；Host 代码没有直接写被测仓库源文件的路径。
 12. **不虚构兼容结论。** 声明层、运行层、历史层分开呈现；读不到就显示未知并附原因，三种状态不合并成一个布尔值。*检查：* 断网/缺服务时 UI 显示"未知 + 原因"而不是"兼容"。
+13. **监测范围排除官方包。** `@deepseek-ai/*` 属于 DSH 本身、随 DSH 版本走，不进监测列表；状态与工具结果用 `excluded` 报告排除了多少 bundle / 条目，而不是静默丢弃。*检查：* `bundles` 里没有该 scope 的项，且 `excluded` 的计数与 `listBundles` / `listPlugins` 的差值一致。
 
 ## 新增一个 operation
 

@@ -6,6 +6,7 @@ Upkeep 是 DeepSeek Harness 的插件兼容性管家。它回答一个问题：*
 
 - **一级侧栏面板**：在左侧面板列表里与 Plugins、Automation tasks 同级，有一个固定的 Upkeep 图标；点开是整页的状态总览。
 - **Plugins 设置页分页**：同一个视图的二级入口，页头可直接跳到一级面板。
+- **监测范围**只包含第三方插件；官方 `@deepseek-ai/*` 包属于 DSH 本身、随 DSH 版本发布，不纳入监测，面板会说明排除了多少 bundle 与插件条目。
 - 面板显示运行中的 DSH 版本、当前 profile、插件条目数，以及每个 bundle 的版本与来源。
 - 提供 `upkeep_status` 工具，让会话内的 agent 也能读取同一份状态（一个操作，两个调用方：面板与工具共用同一个 dispatcher）。
 
