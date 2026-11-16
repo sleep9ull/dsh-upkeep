@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh.md)
 
-![Status](https://img.shields.io/badge/status-M0%20complete-blue)
+![Version](https://img.shields.io/badge/version-0.6.0-blue)
 ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.3-4b8bbe)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -10,35 +10,24 @@
 
 > DSH moves fast. A plugin that no longer declares a compatible version is not "a bit wrong" — DSH refuses to load it, the row ends up silently disabled, and the only trace is one line on stderr. Finding out *why*, then fixing it, is manual work every single release.
 >
-> `dsh-upkeep` closes that loop: it watches the plugins you maintain, tells you what broke before your users do, and turns a break into a targeted upgrade with verification and a pull request.
+> `dsh-upkeep` closes that loop: it watches the plugins you maintain, tells you what broke before your users do, and turns a break into a targeted upgrade, verification, and a pull request you approve.
 
-`dsh-upkeep` is a DSH plugin for plugin authors. It owns three things:
+`dsh-upkeep` is a DeepSeek Harness plugin for plugin authors. It knows which installed plugins are *yours*, whether they still work on the DSH you run today and the one you are about to upgrade to, and what to change when they do not.
 
-- **Compatibility monitoring** — keeps a watch list of your plugins and reports, per plugin, whether it satisfies the running DSH and the next DSH you are about to run.
-- **One-click targeted upgrade** — matches the breaking changes that actually touch your plugin against DSH's migration guides, has a coding agent apply them in a dedicated session (optionally a git worktree), verifies the result, and opens a PR for you to review.
-- **Scheduled upkeep** — creates a recurring compatibility check so a new DSH release is noticed without opening the app.
+## Features
 
-Two doors, one implementation: everything the panel can do is available to the agent as a tool, and everything the agent can do is visible in the panel.
+- **Compatibility monitoring** — knows the running DSH and the next DSH (read from the npm registry, channel-aware), and evaluates every plugin you own against both. A new release that will break your plugin is visible before you install it, not after.
+- **Migration reports** — reads DSH's own upgrade guides, scans what each plugin actually uses (packages, services, events, tools, commands, slots, patch rows, config keys), and lists only the breaking changes that mention those surfaces — with the original Change and Migration text and the evidence behind every match.
+- **One-click targeted upgrade** — prepares a bounded task from the matched changes, optionally in a fresh git worktree, and opens a session with that prompt. The agent edits; you watch, steer and interrupt. A **Verify** button then runs the plugin's own check/test commands in that workspace and reports each result.
+- **Human-confirmed delivery** — commits, pushes and opens the pull request (or merges, when you allow it) only after explicit confirmation, with each step's failure recorded instead of hidden. PRs are the default; merging is an explicit opt-in.
+- **Scheduled upkeep** — creates a recurring DSH task that refreshes the target version, runs the check and reports what needs care. It never edits repositories on its own.
+- **Ownership, not guesswork** — "mine / other / unknown" is decided from evidence (package scope, author, repository, local checkout, git remote) matched against your machine's identity — configuration, `~/.gitconfig` and the signed-in `gh` account. Official `@deepseek-ai/*` packages are excluded and reported, never silently mixed in.
 
-## Status
-
-| Capability | State |
-|---|---|
-| Fixed **Upkeep** panel in the sidebar (level with Plugins), plus a tab in **Settings → Plugins**, status snapshot, ownership and care verdicts, `upkeep_status` tool | **Shipped (M0)** |
-| Target DSH awareness, declared-layer compatibility (running + projected), stored check history, **Check now** | **Shipped (M1)** |
-| Migration-guide matching and a per-plugin breakage report | **Shipped (M2)** |
-| One-click upgrade in a session or worktree, layered verification | **Shipped (M3)** |
-| Human-confirmed PR / merge delivery | **Shipped (M4)** |
-| Recurring checks through DSH's schedule service | **Shipped (M5)** |
-| Hardening, config/i18n contract tests, release notes, repeatable full-test script | **Shipped (M6)** |
-
-The scope, decisions and acceptance criteria live in [docs/PLAN.md](docs/PLAN.md). This README describes only what is shipped today and what is explicitly planned.
+Everything the panel does is also available to the agent through the `upkeep_status` tool, and every result can be traced back to evidence: a manifest, a live row state, or a migration-guide item.
 
 ## Install / update
 
-### From the Plugins page
-
-`dsh-upkeep` is not on the npm registry yet. Install it from a local checkout:
+`dsh-upkeep` is not on the npm registry yet. Install from a local checkout:
 
 ```sh
 git clone https://github.com/sleep9ull/dsh-upkeep.git
@@ -49,75 +38,51 @@ npm run build
 
 Then open **Settings → Plugins → Add plugin** in the DSH web or desktop app, choose the checkout directory, and install. The bundle is linked, so it serves the built `dist/` — rebuild and restart the Host after changing Host code, and refresh the page after changing client code.
 
-### With the `dsh` CLI
+With the `dsh` CLI:
 
 ```sh
 dsh plugin --profile <profile> add /absolute/path/to/dsh-upkeep
 ```
 
-Use the profile that runs your Web UI (`web` for an npm install, `desktop` for the desktop app). Restart the profile or let HMR reload it.
-
-### Update
-
-Pull the checkout, run `npm install && npm run build`, and reload. A future release will be installable from the registry by name.
+Use the profile that runs your Web UI (`web` for an npm install, `desktop` for the desktop app). Updating means pulling the checkout, `npm install && npm run build`, and reloading.
 
 ## Usage
 
 | Entry | What it does |
 |---|---|
-| **Upkeep panel** | A fixed icon in the left sidebar panel list, level with **Plugins** and **Automation tasks**. Click it to open the full page: the running DSH version, the current profile, the plugin-entry count, and every installed bundle with its version, state, owner and care verdict. **Refresh** re-reads it. |
-| **Upkeep tab** | **Settings → Plugins → Upkeep** shows the same view for when you are already managing plugins; its header button jumps to the full panel. |
-| **`upkeep_status` tool** | The agent reads the same snapshot in-session. Pass `action: "bundles.list"` for just the bundle list. Read-only: no installs, no edits, no network. |
-
-### Upkeep panel
-
-The panel answers one question first: **what is this installation actually running, and which plugins did it load?**
-
-- One sentence at the top answers the maintenance question — "All 2 of your plugins are healthy" or "1 of your 2 plugins needs care" — and turns to the error color when something needs attention.
-- A single meta line carries the running DSH version, the profile, the bundle and plugin-entry counts, the Upkeep version and when the snapshot was read.
-- The list is a ledger, not a set of cards: hairline rows, monospace versions, and a 2px rail on rows that need care.
-- The bundle list is split into two visual groups: **My plugins** first (matched against your local identity), then **Other plugins** (other authors or unknown ownership), which is **collapsed by default** — expand it from its heading when you want it, and the choice is remembered.
-- The two groups trim their columns to what matters: **My plugins** shows Bundle / Version / State / Care; **Other plugins** shows Bundle / Version / State, with its heading reporting the other-author and unknown-ownership split. Hovering a row shows its plugin-entry count and install spec; hovering a care verdict shows the reason.
-- Ownership is inferred, never assumed: the package scope, `author`, `repository`, and the git remote of a local checkout are matched against your identity — `ownerHandles` / `ownerEmails` in the plugin configuration, plus the `~/.gitconfig` name/email and the signed-in `gh` account. A plugin with no recognizable signal stays **Unknown**. The identity is whatever machine you run it on: another developer's installation resolves theirs, so the same plugin serves every author.
-- The care verdict is computed only for **Mine**: a declared incompatibility with the running DSH, or a plugin row that failed to load, marks the plugin **Needs care**; otherwise it is **Healthy** (with declared-range evaluation arriving in M1).
-- Official `@deepseek-ai/*` packages are part of DSH and never appear in the monitored list; the summary reports how many bundles and plugin entries were excluded, so nothing looks missing.
-- Warnings appear inline when a fact could not be read, for example when the plugin-manager service is not mounted. An unreadable value is reported as unknown with its reason, never guessed.
-
-### `upkeep_status` tool
-
-The tool is the model-facing door to the same dispatcher the panel calls. Example: ask the agent *"which of my plugins failed to load?"* and it reads the same snapshot you see in the panel.
+| **Upkeep panel** | A fixed icon in the left sidebar panel list, level with **Plugins** and **Automation tasks**. One sentence at the top answers the maintenance question; below it is a ledger of every monitored plugin with its version, state, compatibility and care verdict. |
+| **Settings → Plugins → Upkeep** | The same view from the plugin manager page, with a shortcut to the full panel. |
+| **`upkeep_status` tool** | What the model sees: the same snapshot, plus `check`, `bundles.list` and `report.get` actions for the matched migration items. |
+| **Check now** | Refreshes the target DSH version from the registry, evaluates every plugin against the running and target release, scans the guides, and stores one report. |
+| **Upgrade** | Appears on your plugins that need care or hit a breaking change: confirm, choose worktree or not, and a session opens with the prepared prompt. |
+| **Verify / Create PR / Merge** | After the agent's edits: run the verification commands, then open a pull request, and merge only when enabled. |
+| **Schedule check** | Creates a recurring compatibility check through DSH's schedule service. |
 
 ## How compatibility is decided
 
-DSH has exactly one official verdict, and Upkeep will copy it rather than invent one:
+DSH has exactly one official verdict, and Upkeep reproduces it rather than inventing one:
 
 1. **Declared layer** — a plugin's own `engines.dsh` range decides alone; without it, every `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` peer must match. Prereleases participate, and `workspace:^|~|*` means the running version. A mismatch is an exact-version exemption in the profile's `compatibility.json`, or it does not count as compatible.
-2. **Runtime layer** — the entry's live fiber phase and diagnostic, which catch plugins that satisfy the range but fail to import or start.
-3. **Historical layer** — Upkeep's own record of when a plugin stopped matching, which DSH does not keep.
+2. **Runtime layer** — the live fiber phase of each plugin row, which catches plugins that satisfy the range but fail to import or start.
+3. **Projection layer** — the same declared check against the next DSH. This is the part DSH itself cannot do before you upgrade.
 
-Because the verdict is computed from your plugins' manifests and the running version, Upkeep can also answer the more useful question early: **will this plugin still load on the next DSH?** That projection is what turns a release-day surprise into a task you can schedule.
+An unreadable manifest or an unavailable service is reported as **unknown with its reason**, never as compatible. The target version comes from the npm registry with the desktop channel mapped to its dist-tag and the highest published semver as fallback; the lagging `latest` tag is never trusted alone, and a cached answer is marked stale.
 
-### Migration reports
+## Migration reports
 
-A `check` also reads DSH's upgrade guides for the releases between the running and target DSH, scans each of your plugins for the surfaces it actually uses (packages, services, events, tools, commands, slots, patch rows, config keys), and matches the guide text against them. The panel shows the count on the row tooltip; the `upkeep_status` tool's `report.get` action returns the matched items with their Change and Migration sections and the surfaces that caused each match.
+A check reads DSH's shipped upgrade guides for the releases between the running and target DSH; when the target is newer than the installation, the missing guides are fetched from the release tag. It then scans each of your plugins for the surfaces it really uses and matches guide text on identifier boundaries, with the package/service/event/tool/slot evidence attached to every hit.
 
-## One-click upgrade (M3 delivered; PR delivery in M4)
+The panel shows the count on the row tooltip; `report.get` returns the matched items with their `Change` and `Migration` sections. When nothing matches mechanically, Upkeep says so instead of pretending the plugin is clean.
 
-Press **Upgrade** on one of your plugins (the button appears when it needs care or a matched breaking change exists), confirm, and choose whether the edits run in a separate git worktree. Upkeep matches the guides, prepares the workspace, registers it, and opens a new session with a bounded prompt that names the exact Change/Migration items and the verification commands. The agent edits; you watch, steer and interrupt. Back in the panel, **Verify** runs the commands in that workspace and reports the per-command result.
+## Upgrades and delivery
 
-1. **Match** — scan the plugin's manifest, bundle patch, imports, services, events, tools, slots and persisted data, then select the migration-guide items that actually mention those surfaces.
-2. **Plan** — hand the matched `Change` / `Migration` text to a coding agent as a bounded task, with the files, the acceptance command and the stop conditions.
-3. **Edit** — the agent works in a dedicated DSH session rooted at your repository, or in a fresh git worktree when you ask for isolation. You can watch, steer and interrupt.
-4. **Verify** — layered checks: manifest re-evaluation, the repository's own check/test commands, a composed-profile admission check, and optionally a headless boot of a throwaway profile.
-5. **Deliver** — you review the diff and the verification report, then Upkeep opens a PR (default) or merges, on your confirmation. Nothing is pushed or merged unattended.
+**Upgrade** prepares the workspace (the checkout itself, or a `git worktree` if you ask for isolation), registers it, and opens a session with a prompt that names the exact changes, the files and the verification commands. The agent edits; you stay in control.
 
-## Delivery (M4)
+**Verify** runs the configured commands (default: the package's `check` and `test` scripts, falling back to `build`) in that workspace and records each exit code. **Create PR** commits, pushes and opens the pull request with `gh`; **Merge** only appears when `allowMerge` is enabled, and still asks each time. Failed steps record their error on the run — no silent success.
 
-After a verification passes, the notice offers **Create PR**: Upkeep commits the workspace, pushes the branch and opens a pull request with the host `gh` CLI. The URL is shown in the panel; when `allowMerge` is enabled, a **Merge** button appears — each step is behind its own confirmation. Failed steps record their error on the run instead of pretending success.
+## Scheduled upkeep
 
-## Scheduled upkeep (M5)
-
-**Schedule check** creates a recurring DSH task (default every 24 hours, configurable). Each delivery opens a session with a prompt that refreshes the target version, runs a check, and reports which of your plugins need care and which migration items matched. The task never edits repositories: upgrades stay behind the panel's Upgrade/Verify/Create PR buttons. Manage or pause it on DSH's Automation tasks page.
+**Schedule check** creates a recurring task (default every 24 hours) through DSH's own schedule service. Each delivery starts a session with a prompt that refreshes the target, runs the check and reports which of your plugins need care and which migration items matched. The task never edits repositories; upgrades remain behind the panel's buttons. Manage or pause it on DSH's **Automation tasks** page.
 
 ## Configuration
 
@@ -125,52 +90,44 @@ The Loader row accepts the following configuration (defaults shown):
 
 | Field | Default | Meaning |
 |---|---|---|
-| `targetChannel` | `auto` | Which DSH release channel the monitor compares against. `auto` follows the desktop app's update channel. |
-| `checkOnStartup` | `true` | Whether a compatibility check runs when the Host starts. |
-| `concurrency` | `2` | How many watched plugins one check may inspect at a time (clamped to 1–8). |
-| `worktreeRoot` | `""` | Directory under which upgrade worktrees are created; empty means beside the repository. |
-| `defaultBaseBranch` | `main` | Branch that previews compare against and pull requests target. |
-| `allowMerge` | `false` | Whether **Merge** is offered at all; each merge still asks for confirmation. |
-| `scheduleCwd` | `""` | Project directory for the Session a scheduled check creates; empty uses `$DSH_HOME`. |
-| `scheduleIntervalHours` | `24` | Default interval for a created check (1–720 hours). |
-| `ownerHandles` | `""` | Comma-separated account handles that identify you (npm scope / GitHub login). Empty means auto-detect. |
-| `ownerEmails` | `""` | Comma-separated author emails that identify you, matched against a plugin's `author`. |
-| `autoDetectOwner` | `true` | Whether the `~/.gitconfig` name/email and the signed-in `gh` account may be used as identity. |
+| `targetChannel` | `auto` | Release channel compared against; `auto` follows the desktop app's update channel. |
+| `targetVersion` | `""` | Exact target version; empty asks the registry. |
+| `feedTtlMinutes` | `60` | How long a cached registry answer stays fresh. |
+| `checkOnStartup` | `true` | Whether a check runs shortly after the Host starts. |
+| `checksToKeep` | `20` | How many check reports to retain. |
+| `analyzeOnCheck` | `true` | Whether a check also matches the migration guides. |
+| `concurrency` | `2` | How many plugins one check inspects at a time (1–8). |
+| `verifyCommands` | `[]` | Commands used by Verify; empty derives them from package scripts. |
+| `runsToKeep` | `10` | How many upgrade runs to retain. |
+| `worktreeRoot` | `""` | Where worktrees are created; empty means beside the repository. |
+| `defaultBaseBranch` | `main` | Branch previews compare against and PRs target. |
+| `allowMerge` | `false` | Whether Merge is offered at all; every merge still asks. |
+| `ownerHandles` | `""` | Account handles that identify you; empty auto-detects. |
+| `ownerEmails` | `""` | Author emails that identify you. |
+| `autoDetectOwner` | `true` | Use `~/.gitconfig` and the `gh` login as identity. |
+| `scheduleCwd` | `""` | Project directory for a scheduled check's session; empty uses `$DSH_HOME`. |
+| `scheduleIntervalHours` | `24` | Default interval for a created check (1–720). |
 
 ## Development
 
 ```sh
 npm install
-npm run verify   # type-check both halves, build, run the unit tests, syntax-check the client script
+npm run verify       # type-check both halves, build, unit tests, client syntax check
+npm run verify:full  # everything above + package metadata + profile check + real registry read
 ```
 
-| Command | Purpose |
-|---|---|
-| `npm run build` | Compile the Host half and the client script into `dist/`. |
-| `npm run check` | Type-check without emitting. |
-| `npm test` | Build, compile the tests, run them against `dist/`, then `node --check dist/client.js`. |
-| `npm run verify` | `check` + `test`. |
-
-Before installing into a running profile, rebuild: a linked install serves `dist/`. `docs/PLAN.md` holds the architecture and milestones; `docs/EVIDENCE.md` holds the verified DSH facts this plugin is built on; `AGENTS.md` holds the engineering contract for contributors and agents.
-
-## Full verification
-
-`npm run verify:full` runs the complete pass: unit and contract tests, package metadata, the CLI's composed desktop profile (proving this bundle's row reaches the Loader), and one real npm-registry read for the target version. Unsupported steps are reported as `skipped`, never as a silent pass.
+`docs/PLAN.md` holds the design and decisions, `docs/EVIDENCE.md` the verified DSH facts this plugin is built on, and `AGENTS.md` the engineering contract. State lives in `$DSH_HOME/upkeep/state.json` (versioned, atomic, bounded; losing it costs a re-check, never behaviour).
 
 ## Notes and limitations
 
-- **M0 is read-only.** It reads versions, profile state and bundle state. It installs nothing, edits nothing and makes no network requests.
-- **Compatibility verdicts are not implemented yet.** The Upkeep panel reports the load error DSH already recorded; deriving declared/runtime/projected compatibility arrives with M1.
-- **The client half is a separate load.** After changing `src/client.ts`, refresh the page; after changing Host code, restart the Harness so the module generation is replaced.
-- **A linked checkout serves `dist/`.** Run `npm run build` before installing or reloading, otherwise the new code will not appear.
-- **Ownership is inference, not an account system.** It reads package metadata and the git remote of local checkouts; when those do not identify you, the plugin stays `Unknown` and you can set `ownerHandles` explicitly. No repository is contacted to verify authorship.
-- **Check now** refreshes the target DSH version from the npm registry, re-evaluates every bundle against both versions, and stores one report under `$DSH_HOME/upkeep/state.json`. The panel shows the target version and channel, marks a cached answer as stale, and only needs the network when you press the button.
-- **No push from the Host.** DSH does not push to the browser. The panel reads on open and on demand, which is a deliberate design choice, not a missing refresh.
-- **Version support.** Verified on DSH `0.2.2-rc.3`; the declared range is `>=0.2.2-rc.1 <0.3.0`. DSH is in a release-candidate cycle, so the range is a promise about the surface this plugin uses, not a claim about every build.
-
-## Like it?
-
-If `dsh-upkeep` saves you a release-day scramble, a ⭐ on [GitHub](https://github.com/sleep9ull/dsh-upkeep) is welcome — issues and PRs too.
+- **Verified on DSH `0.2.2-rc.3`**, declared range `>=0.2.2-rc.1 <0.3.0`.
+- **The PR path needs the host `gh` CLI signed in**; merging needs `allowMerge` and a fresh confirmation. Nothing is pushed unattended.
+- **A linked checkout serves `dist/`.** Build before installing or reloading; Host changes need a Harness restart, client changes only a page refresh.
+- **A worktree starts from HEAD.** Uncommitted changes are not copied; the panel warns when the repository is dirty.
+- **Remote guide fetching needs network.** Without it, only the installed guides are used and the failure is reported, never hidden.
+- **Not published to npm yet.** Installation is from a local checkout as described above.
+- **Desktop owns its running profile.** While the app is open, the CLI cannot compose `--profile desktop`; the full-test script reports that step as skipped rather than passing silently.
+- **No background push.** DSH does not push to the browser; the panel reads on open and on demand, and scheduled checks appear as sessions.
 
 ## License
 
