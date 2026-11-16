@@ -470,9 +470,14 @@ interface Window {
                 const care = bundle.maintenance && bundle.maintenance.state ? bundle.maintenance.state : 'unknown'
                 // The row count and install spec stay available on hover instead of taking a column:
                 // for a single-plugin bundle they say little, and the group already names the owner.
+                const ownership = bundle.owner
+                const ownershipEvidence = ownership && ownership.status !== 'mine' && Array.isArray(ownership.evidence)
+                  ? ownership.evidence.join(' · ')
+                  : ''
                 const detail = [
                   typeof bundle.rowCount === 'number' ? String(bundle.rowCount) + ' ' + t('entries') : '',
                   bundle.source || '',
+                  ownershipEvidence,
                 ].filter(part => part !== '').join(' · ')
                 const cells: Child[] = [
                   h('td', { key: 'name', className: 'upkeep-name' },
