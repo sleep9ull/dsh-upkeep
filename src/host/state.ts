@@ -64,7 +64,19 @@ export interface StoredRun {
   branch?: string
   prompt: string
   verifyCommands: string[]
+  from?: string | null
+  to?: string | null
+  matched?: number
   verify?: Array<{ command: string; exitCode: number | null; ok: boolean; output: string }>
+  /** Delivery progress: commit, push, pull request, merge. */
+  delivery?: {
+    stage: 'committed' | 'pushed' | 'pr' | 'merged' | 'failed'
+    commit?: string
+    branch?: string
+    prUrl?: string
+    mergedAt?: number
+    error?: string
+  }
 }
 
 /** The cached target-version answer from the registry. */

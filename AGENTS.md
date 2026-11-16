@@ -40,7 +40,7 @@
 | `src/host/match.ts` | 指南条目 × 表面 token 的机械匹配与打分，只留下有命中的条目；`summarizeMatches` 产出面板用的 impact。 |
 | `src/host/exec.ts` | Host 半唯一子进程 seam：argv 数组、超时、输出上限、可注入 runner（worktree 与验证共用）。 |
 | `src/host/upgrade.ts` | 升级闭环：prompt 组装、验证命令推导、git 仓库探测、worktree 准备、逐命令验证。 |
-| `src/host/deliver/` *(M4)* | `git`/`gh`/`forge` 适配与确认门。 |
+| `src/host/deliver.ts` | 交付：preview（分支/dirty/ahead/diff/gh 状态）、commit、push、`gh pr create`、`gh pr merge`、worktree 清理；全部有界、argv 数组、确认门。 |
 | `src/client.ts` | Web 半：**一段编译脚本**（`module: none`，无 import/export），注册一级侧栏面板（`main` key + `sidebar.panellist` 图标，id `dsh-upkeep`）与 Plugins 设置页分页（同一 id，二级入口）；React 由 loader 的 `require` 提供。 |
 | `locale/en.json`、`locale/zh.json` | 插件展示元数据（`meta.title/description/detail`）。面板内文案在 `src/client.ts` 的 `en`/`zh` 字典。 |
 | `cordis.patch.yml` | bundle patch：插入 row `upkeep`（`@sleep9ull/dsh-upkeep`）及其 config。 |
@@ -58,7 +58,7 @@
 
 1. **两扇门，一次实现。** 行为只写在 `src/host/dispatch.ts`（及它委派的模块）；`rpc.ts`、`tool.ts`、`client.ts` 只做翻译。*检查：* 同一 operation 经任一门可用，且为它加能力时没有改两个适配器。
 2. **只读默认，写必确认。** 每个 action 显式声明 `kind`；`write` 需要用户显式确认，工具侧另经 `tools/pre-execute` 询问。*检查：* 未确认的写调用返回稳定错误码，面板弹出确认，模型路径出现审批。
-3. **交付由人确认（M4+）。** 推送与 PR 由 Host 在确认后执行，合并 main 是显式开关 + 每次确认；无人值守的子 agent 只做编辑与测试。*检查：* 默认路径只产出 PR；关掉开关时合并入口不可达。
+3. **交付由人确认。** 推送与 PR 由 Host 在确认后执行，合并 main 是显式开关 + 每次确认；无人值守的子 agent 只做编辑与测试。*检查：* 默认路径只产出 PR；关闭 `allowMerge` 时 `delivery.merge` 返回 `MERGE_DISABLED`。
 4. **证据优先。** 任何 DSH 行为断言都能指到安装版文件与行号，并写入 EVIDENCE.md；凭记忆的结论不算。*检查：* 新断言在 EVIDENCE.md 有对应行，且标注了版本。
 5. **判据与 DSH 一致（M1+）。** vendor 的 `compat.ts` 逐条对齐 `app-boot` 语义：`engines.dsh` 存在则独占判定；否则看 `@deepseek-ai/dsh*` peer；`includePrerelease: true`；`workspace:^|~|*` 改写为运行版本；空/非法范围判不满足；豁免只认精确 `name@version` → 精确 DSH 版本。*检查：* 与 DSH 源码对照的表格化单测；DSH 升级时重跑对照。
 6. **运行版本从 profile 取。** 用 `ctx.profileContext.installAnchor` 读运行中 `@deepseek-ai/dsh/package.json`；`DSH_INSTALL_DIR` 只是 shell 工具变量。*检查：* `src/` 里没有读该环境变量的 Host 代码；状态接口返回 `runtimeVersion`。

@@ -48,6 +48,15 @@ import { summarizeMatches, matchGuides, type ImpactSummary, type GuideMatch } fr
 import { scanSurfaces, type SurfaceInventory } from './surfaces.js'
 import { createExecRunner, type ExecRunner } from './exec.js'
 import {
+  buildDeliveryText,
+  commitWorkspace,
+  createPullRequest,
+  mergePullRequest,
+  readDeliveryPreview,
+  pushBranch,
+  type DeliveryPreview,
+} from './deliver.js'
+import {
   buildUpgradePrompt,
   deriveVerifyCommands,
   inspectRepository,
@@ -100,6 +109,10 @@ export interface HubConfig {
   verifyCommands: string[]
   /** How many upgrade runs to retain in the state file. */
   runsToKeep: number
+  /** The branch delivery targets compare against and open PRs against. */
+  defaultBaseBranch: string
+  /** Whether `delivery.merge` is allowed at all; each merge still needs its own confirmation. */
+  allowMerge: boolean
   /** How many entries a check may inspect concurrently. */
   concurrency: number
   /** Directory under which upgrade worktrees are created; empty means the repository's sibling directory. */
@@ -154,6 +167,8 @@ export function normalizeConfig(raw: unknown): HubConfig {
     analyzeOnCheck: config.analyzeOnCheck !== false,
     verifyCommands: normalizeCommandList(config.verifyCommands),
     runsToKeep: normalizeInteger(config.runsToKeep, 10, 1, 20),
+    defaultBaseBranch: typeof config.defaultBaseBranch === 'string' && config.defaultBaseBranch.trim() !== '' ? config.defaultBaseBranch.trim() : 'main',
+    allowMerge: config.allowMerge === true,
     concurrency: normalizeInteger(config.concurrency, 2, 1, 8),
     worktreeRoot: typeof config.worktreeRoot === 'string' ? config.worktreeRoot : '',
     ownerHandles: normalizeConfigList(config.ownerHandles),
@@ -253,6 +268,8 @@ export interface StatusSnapshot {
   plugins: { entryCount: number | null }
   /** Official DSH packages left out of the monitored view, reported instead of hidden. */
   excluded: { bundles: number; entries: number }
+  /** Delivery policy the panel needs to render the right buttons. */
+  delivery: { allowMerge: boolean; baseBranch: string }
   /** Authorship rollup plus the identity it was matched against. */
   ownership: {
     mine: number
@@ -655,6 +672,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
       dsh: { runtimeVersion: runtime.version, installAnchor: runtime.anchor },
       profile: { name: profile?.name ?? null, dir: profile?.dir ?? null },
       target,
+      delivery: { allowMerge: config.allowMerge, baseBranch: config.defaultBaseBranch },
       ...(lastCheckView(state) === undefined ? {} : { lastCheck: lastCheckView(state) }),
       bundles,
       plugins: { entryCount: live.monitored },
@@ -835,6 +853,9 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
           ...(prepared.branch === undefined ? {} : { branch: prepared.branch }),
           prompt,
           verifyCommands,
+          from: status.dsh.runtimeVersion,
+          to: status.target.version,
+          matched: analysis.matches.length,
         }
         const current = readState(home)
         writeState(home, appendRun(current, run, config.runsToKeep))
@@ -868,6 +889,93 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
       kind: 'read',
       description: 'Prepared upgrade runs with their status and verification outcome.',
       run: async () => ({ runs: readState(home).runs }),
+    },
+    'delivery.preview': {
+      kind: 'read',
+      description: 'Branch, working-tree, diff and gh facts for one prepared run, plus the commit/PR text.',
+      run: async (input) => {
+        const runId = typeof input.runId === 'string' ? input.runId : ''
+        const run = readState(home).runs.find(entry => entry.id === runId)
+        if (run === undefined) throw new HubError('UNKNOWN_RUN', `No upgrade run named ${runId}`)
+        const preview = await readDeliveryPreview(exec, run.workspacePath, config.defaultBaseBranch)
+        return {
+          run,
+          preview,
+          proposal: buildDeliveryText({ bundle: run.bundle, from: run.from ?? null, to: run.to ?? null, matched: run.matched ?? 0 }),
+          allowMerge: config.allowMerge,
+        }
+      },
+    },
+    'delivery.create-pr': {
+      kind: 'write',
+      description: 'Commit the run workspace, push the branch and open a pull request with gh (needs confirm).',
+      run: async (input) => {
+        if (input.confirm !== true) throw new HubError('CONFIRM_REQUIRED', 'Creating a pull request needs confirm: true.')
+        const runId = typeof input.runId === 'string' ? input.runId : ''
+        const current = readState(home)
+        const run = current.runs.find(entry => entry.id === runId)
+        if (run === undefined) throw new HubError('UNKNOWN_RUN', `No upgrade run named ${runId}`)
+        const preview = await readDeliveryPreview(exec, run.workspacePath, config.defaultBaseBranch)
+        if (!preview.gh.available) throw new HubError('GH_UNAVAILABLE', 'The gh CLI is not installed; push the branch manually.')
+        if (!preview.gh.authed) throw new HubError('GH_UNAUTHENTICATED', 'The gh CLI is not signed in.')
+
+        const proposal = buildDeliveryText({ bundle: run.bundle, from: run.from ?? null, to: run.to ?? null, matched: run.matched ?? 0 })
+        const commit = await commitWorkspace(exec, run.workspacePath, proposal.commitMessage)
+        if (!commit.committed && preview.dirty === 0 && preview.ahead === 0) {
+          throw new HubError('NOTHING_TO_DELIVER', 'There are no changes to commit or push.')
+        }
+        const branch = preview.branch ?? run.branch
+        if (branch === null || branch === undefined) throw new HubError('NO_BRANCH', 'The workspace is not on a git branch.')
+        const pushed = await pushBranch(exec, run.workspacePath, branch)
+        if (!pushed.ok) {
+          writeState(home, updateRun(current, runId, { delivery: { stage: 'failed', branch, error: pushed.output.slice(-600) } }))
+          throw new HubError('PUSH_FAILED', 'The branch could not be pushed.', pushed.output.slice(-2_000))
+        }
+        const pr = await createPullRequest(exec, run.workspacePath, {
+          base: config.defaultBaseBranch,
+          branch,
+          title: proposal.prTitle,
+          body: proposal.prBody,
+        })
+        if (!pr.ok || pr.url === undefined) {
+          writeState(home, updateRun(current, runId, { delivery: { stage: 'failed', branch, error: pr.output.slice(-600) } }))
+          throw new HubError('PR_FAILED', 'The pull request could not be created.', pr.output.slice(-2_000))
+        }
+        const next = updateRun(current, runId, {
+          delivery: { stage: 'pr', branch, prUrl: pr.url, ...(commit.sha === undefined ? {} : { commit: commit.sha }) },
+        })
+        writeState(home, next)
+        return {
+          run: next.runs.find(entry => entry.id === runId) ?? run,
+          preview,
+          committed: commit.committed,
+          commit: commit.sha,
+          branch,
+          prUrl: pr.url,
+          warnings: preview.warnings,
+        }
+      },
+    },
+    'delivery.merge': {
+      kind: 'write',
+      description: 'Merge the pull request of a run (requires allowMerge and confirm).',
+      run: async (input) => {
+        if (input.confirm !== true) throw new HubError('CONFIRM_REQUIRED', 'Merging needs confirm: true.')
+        if (!config.allowMerge) throw new HubError('MERGE_DISABLED', 'Merging is disabled; enable allowMerge in the plugin configuration first.')
+        const runId = typeof input.runId === 'string' ? input.runId : ''
+        const current = readState(home)
+        const run = current.runs.find(entry => entry.id === runId)
+        if (run === undefined) throw new HubError('UNKNOWN_RUN', `No upgrade run named ${runId}`)
+        const prUrl = run.delivery?.prUrl
+        if (prUrl === undefined) throw new HubError('NO_PULL_REQUEST', 'This run has no pull request to merge.')
+        const merged = await mergePullRequest(exec, run.workspacePath, { ref: prUrl, method: 'merge' })
+        if (!merged.ok) throw new HubError('MERGE_FAILED', 'The pull request could not be merged.', merged.output.slice(-2_000))
+        const next = updateRun(current, runId, {
+          delivery: { ...(run.delivery ?? { stage: 'merged' }), stage: 'merged', prUrl, mergedAt: now() },
+        })
+        writeState(home, next)
+        return { run: next.runs.find(entry => entry.id === runId) ?? run, mergedAt: now() }
+      },
     },
     'bundles.list': {
       kind: 'read',

@@ -28,7 +28,7 @@ Two doors, one implementation: everything the panel can do is available to the a
 | Target DSH awareness, declared-layer compatibility (running + projected), stored check history, **Check now** | **Shipped (M1)** |
 | Migration-guide matching and a per-plugin breakage report | **Shipped (M2)** |
 | One-click upgrade in a session or worktree, layered verification | **Shipped (M3)** |
-| Human-confirmed PR / merge delivery | Planned (M4) |
+| Human-confirmed PR / merge delivery | **Shipped (M4)** |
 | Recurring checks through DSH's schedule service | Planned (M5) |
 | Release hardening, cross-version matrix, npm publish | Planned (M6) |
 
@@ -111,6 +111,10 @@ Press **Upgrade** on one of your plugins (the button appears when it needs care 
 4. **Verify** — layered checks: manifest re-evaluation, the repository's own check/test commands, a composed-profile admission check, and optionally a headless boot of a throwaway profile.
 5. **Deliver** — you review the diff and the verification report, then Upkeep opens a PR (default) or merges, on your confirmation. Nothing is pushed or merged unattended.
 
+## Delivery (M4)
+
+After a verification passes, the notice offers **Create PR**: Upkeep commits the workspace, pushes the branch and opens a pull request with the host `gh` CLI. The URL is shown in the panel; when `allowMerge` is enabled, a **Merge** button appears — each step is behind its own confirmation. Failed steps record their error on the run instead of pretending success.
+
 ## Scheduled upkeep (planned, M5)
 
 Upkeep will create a DSH scheduled task on your behalf — daily, weekly, or cron — that runs the check and reports back. When a monitored plugin drops out of compatibility, the task can either notify you or start the upgrade flow, with delivery still behind your confirmation.
@@ -125,6 +129,8 @@ The Loader row accepts the following configuration (defaults shown):
 | `checkOnStartup` | `true` | Whether a compatibility check runs when the Host starts. |
 | `concurrency` | `2` | How many watched plugins one check may inspect at a time (clamped to 1–8). |
 | `worktreeRoot` | `""` | Directory under which upgrade worktrees are created; empty means beside the repository. |
+| `defaultBaseBranch` | `main` | Branch that previews compare against and pull requests target. |
+| `allowMerge` | `false` | Whether **Merge** is offered at all; each merge still asks for confirmation. |
 | `ownerHandles` | `""` | Comma-separated account handles that identify you (npm scope / GitHub login). Empty means auto-detect. |
 | `ownerEmails` | `""` | Comma-separated author emails that identify you, matched against a plugin's `author`. |
 | `autoDetectOwner` | `true` | Whether the `~/.gitconfig` name/email and the signed-in `gh` account may be used as identity. |

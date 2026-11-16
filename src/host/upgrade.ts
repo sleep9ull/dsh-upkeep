@@ -35,6 +35,9 @@ export interface UpgradeRunRecord {
   branch?: string
   prompt: string
   verifyCommands: string[]
+  from: string | null
+  to: string | null
+  matched: number
   verify?: Array<{ command: string; exitCode: number | null; ok: boolean; output: string }>
 }
 

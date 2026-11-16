@@ -564,6 +564,16 @@ idle
 - 状态：`state.json` 增加有界 `runs`（默认 10 条），记录 prompt、workspace、验证结果。
 - 测试：升级单测 5 条 + Hub `upgrade.prepare`（confirm 门、worktree、workspace 注册、prompt 内容）与 `upgrade.verify` 集成 1 条；全套 53 个单测通过。
 - 未做/边界：PR 与合并留给 M4；L3/L4（`--dump-config`、headless 启动 oracle）未接入；Session 启动依赖 workspaceRegistry（缺失时报 `WORKSPACE_UNAVAILABLE`）；真机路径需重启 Host + 刷新页面验证。
+### M4 已完成（2026-11-16）
+
+- `src/host/deliver.ts`：交付 seam——`readDeliveryPreview`（分支 / dirty / ahead / diffstat / gh 可用与登录 / remote）、`commitWorkspace`（`git add -A` + commit，干净树不算错误）、`pushBranch`、`createPullRequest`（`gh pr create`，已存在则复用 URL）、`mergePullRequest`（`--merge`/`--squash`）、`removeWorktree`、`buildDeliveryText`。
+- Actions：`delivery.preview`（read）、`delivery.create-pr`（write，confirm）与 `delivery.merge`（write，confirm + `allowMerge`）。create-pr 顺序为 commit → push → gh pr create，任一步失败都会把 `delivery.error` 落库；merge 要求已有 PR。
+- 配置：`defaultBaseBranch`（默认 `main`）、`allowMerge`（默认 `false`，每次合并仍需单独确认）。
+- 状态：run 增加 `delivery`（stage / commit / branch / prUrl / mergedAt / error）。
+- Client：验证成功后通知出现「创建 PR」；创建成功后显示 URL，并在 `allowMerge` 时出现「合并」；两步都带二次确认。
+- 测试：delivery 单测 5 条 + Hub 交付链路（confirm 门、commit/push/PR、merge、MERGE_DISABLED）2 条；总计 60 个单测通过。
+- 边界：forge 默认未挂载，PR 创建固定走宿主 `gh`；worktree 清理已实现但未接 UI；真机需重启 Host、`gh` 已登录、base 分支本地存在（否则 preview 给 warning）。
+
 
 
 

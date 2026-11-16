@@ -331,3 +331,67 @@ test('upgrade.prepare gated by confirm, registers a workspace, and verify record
   assert.equal(verified.results[0]?.command, 'npm test')
   assert.equal(readState(home).runs[0]?.status, 'verified')
 })
+
+test('delivery commits, pushes and opens a PR, then merges when allowed', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-m4-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-m4-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-m4-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(join(packageDir, 'src'), { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
+    name: '@sleep9ull/plugin', version: '1.0.0', engines: { dsh: '^0.2.2-rc.1' }, scripts: { test: 'node --version' },
+  }))
+  writeFileSync(join(packageDir, 'src', 'index.js'), 'ctx.tools.register({})\n')
+
+  const exec = {
+    run: async (command: string, args: string[]) => {
+      const ok = (stdout = '') => ({ exitCode: 0, stdout, stderr: '', timedOut: false })
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('upkeep/x\n')
+      if (command === 'git' && args[0] === 'status') return ok(' M src/index.js\n')
+      if (command === 'git' && args[0] === 'rev-parse') return ok('abc1234\n')
+      if (command === 'git' && args[0] === 'remote') return ok('git@github.com:o/r.git\n')
+      if (command === 'gh' && args[0] === 'pr' && args[1] === 'create') return ok('https://github.com/o/r/pull/9\n')
+      return ok()
+    },
+  }
+
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [], source: 'link:' + packageDir }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+    workspaceRegistry: { create: async (path: string, title: string) => ({ id: 'ws-1', path, title }) },
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false, targetVersion: '0.2.2-rc.3', allowMerge: true }), {
+    home, startupCheck: false, now: () => 7_000, exec,
+  })
+
+  const prepared = await hub.call('upgrade.prepare', { bundle: '@sleep9ull/plugin', confirm: true }, { caller: 'client' }) as { run: { id: string } }
+
+  await assert.rejects(
+    () => hub.call('delivery.create-pr', { runId: prepared.run.id, confirm: false }, { caller: 'client' }),
+    (error: unknown) => (error as { code?: string }).code === 'CONFIRM_REQUIRED',
+  )
+
+  const delivered = await hub.call('delivery.create-pr', { runId: prepared.run.id, confirm: true }, { caller: 'client' }) as {
+    prUrl: string
+    committed: boolean
+    commit?: string
+  }
+  assert.equal(delivered.prUrl, 'https://github.com/o/r/pull/9')
+  assert.equal(delivered.committed, true)
+  assert.equal(readState(home).runs[0]?.delivery?.stage, 'pr')
+  assert.equal(readState(home).runs[0]?.delivery?.prUrl, 'https://github.com/o/r/pull/9')
+
+  const merged = await hub.call('delivery.merge', { runId: prepared.run.id, confirm: true }, { caller: 'client' }) as { mergedAt: number }
+  assert.equal(merged.mergedAt, 7_000)
+  assert.equal(readState(home).runs[0]?.delivery?.stage, 'merged')
+})
+
+test('merging is refused when the configuration does not allow it', async () => {
+  const hub = createHub(fakeContext(), normalizeConfig({ allowMerge: false }), TEST_DEPS)
+  await assert.rejects(
+    () => hub.call('delivery.merge', { runId: 'run-x', confirm: true }, { caller: 'client' }),
+    (error: unknown) => (error as { code?: string }).code === 'MERGE_DISABLED',
+  )
+})

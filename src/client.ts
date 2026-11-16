@@ -109,6 +109,7 @@ type StatusSnapshot = {
   profile?: { name?: string | null; dir?: string | null }
   target?: TargetVersion
   lastCheck?: LastCheckView
+  delivery?: { allowMerge?: boolean; baseBranch?: string }
   bundles?: BundleSummary[]
   plugins?: { entryCount?: number | null }
   excluded?: { bundles?: number; entries?: number }
@@ -123,7 +124,7 @@ type StatusSnapshot = {
 }
 
 type StorePhase = 'idle' | 'loading' | 'checking' | 'upgrading' | 'ready' | 'error'
-type UpgradeNotice = { kind: 'ok' | 'error'; text: string; runId?: string }
+type UpgradeNotice = { kind: 'ok' | 'error'; text: string; runId?: string; prUrl?: string }
 type StoreState = { phase: StorePhase; data: StatusSnapshot | null; error: RpcFailure | null; notice?: UpgradeNotice }
 type Store = {
   subscribe(listener: () => void): () => void
@@ -136,6 +137,10 @@ type Store = {
   upgrade(bundle: string, worktree: boolean): Promise<void>
   /** Run the prepared verification commands for one run. */
   verify(runId: string): Promise<void>
+  /** Commit, push and open a pull request for one run. */
+  createPr(runId: string): Promise<void>
+  /** Merge the run's pull request (only when the Host allows merging). */
+  merge(runId: string): Promise<void>
 }
 
 /* ---- the Cordis services the plugin is applied to ---------------- */
@@ -283,6 +288,12 @@ interface Window {
         verifyNow: 'Verify',
         verifyResult: 'Verification: {ok}/{total} commands passed.',
         verifyNone: 'No verification commands ran.',
+        createPr: 'Create PR',
+        merge: 'Merge',
+        confirmPr: 'Commit, push and open a pull request for this run?',
+        confirmMerge: 'Merge this pull request now?',
+        prCreated: 'Pull request created:',
+        mergeDone: 'Pull request merged.',
       }
 
       const zh: Record<string, string> = {
@@ -349,6 +360,12 @@ interface Window {
         verifyNow: '验证',
         verifyResult: '验证结果：{ok}/{total} 个命令通过。',
         verifyNone: '没有可运行的验证命令。',
+        createPr: '创建 PR',
+        merge: '合并',
+        confirmPr: '提交、推送并为这次运行创建 PR？',
+        confirmMerge: '现在合并这个 PR？',
+        prCreated: 'PR 已创建：',
+        mergeDone: 'PR 已合并。',
       }
 
       const CSS = `
@@ -411,6 +428,7 @@ interface Window {
 [data-upkeep] .upkeep-btn-xs { padding: 1px 8px; font-size: 10px; line-height: 1.5; }
 [data-upkeep] .upkeep-notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0 6px 12px; border-left: 2px solid var(--dsw-alias-brand-primary); font-size: 11px; line-height: 1.55; }
 [data-upkeep] .upkeep-notice[data-kind="error"] { border-left-color: var(--dsw-alias-state-error-primary); }
+[data-upkeep] .upkeep-notice-actions { display: flex; flex: none; gap: 6px; }
 [data-upkeep] .upkeep-footer { display: flex; flex-direction: column; gap: 3px; padding-top: 12px; border-top: 1px solid var(--dsw-alias-border-l1); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.55; }
 
 @media (max-width: 640px) {
@@ -503,6 +521,36 @@ interface Window {
           }
         }
 
+        const createPr = async (runId: string): Promise<void> => {
+          publish({ phase: 'checking', data: state.data, error: null, notice: state.notice })
+          try {
+            const answer = await callHost(ctx, 'delivery.create-pr', { runId, confirm: true })
+            if (!answer.ok) {
+              publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'error', text: answer.error.code + ': ' + answer.error.message, runId } })
+              return
+            }
+            const value = answer.value as { prUrl?: string; branch?: string } | null
+            const url = value && typeof value.prUrl === 'string' ? value.prUrl : ''
+            publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'ok', text: url === '' ? t('prCreated') : t('prCreated') + ' ' + url, runId, ...(url === '' ? {} : { prUrl: url }) } })
+          } finally {
+            running = false
+          }
+        }
+
+        const merge = async (runId: string): Promise<void> => {
+          publish({ phase: 'checking', data: state.data, error: null, notice: state.notice })
+          try {
+            const answer = await callHost(ctx, 'delivery.merge', { runId, confirm: true })
+            if (!answer.ok) {
+              publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'error', text: answer.error.code + ': ' + answer.error.message, runId: state.notice?.prUrl } })
+              return
+            }
+            publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'ok', text: t('mergeDone'), runId, prUrl: state.notice?.prUrl } })
+          } finally {
+            running = false
+          }
+        }
+
         const verify = async (runId: string): Promise<void> => {
           publish({ phase: 'checking', data: state.data, error: null, notice: state.notice })
           try {
@@ -539,6 +587,8 @@ interface Window {
           async check() { await read('check', 'checking') },
           upgrade,
           verify,
+          createPr,
+          merge,
         }
       }
 
@@ -860,7 +910,25 @@ interface Window {
               ? h('div', { className: 'upkeep-notice', 'data-kind': state.notice.kind, role: 'status' },
                   h('span', null, state.notice.text),
                   state.notice.runId
-                    ? h('button', { className: 'upkeep-btn', type: 'button', onClick: () => { if (state.notice?.runId) void store.verify(state.notice.runId) } }, t('verifyNow'))
+                    ? h('span', { className: 'upkeep-notice-actions' },
+                        h('button', { className: 'upkeep-btn', type: 'button', onClick: () => { if (state.notice?.runId) void store.verify(state.notice.runId) } }, t('verifyNow')),
+                        state.notice.prUrl === undefined
+                          ? h('button', {
+                              className: 'upkeep-btn',
+                              type: 'button',
+                              onClick: () => {
+                                if (state.notice?.runId && (typeof window.confirm !== 'function' || window.confirm(t('confirmPr')))) void store.createPr(state.notice.runId)
+                              },
+                            }, t('createPr'))
+                          : data && data.delivery && data.delivery.allowMerge === true
+                            ? h('button', {
+                                className: 'upkeep-btn',
+                                type: 'button',
+                                onClick: () => {
+                                  if (state.notice?.runId && (typeof window.confirm !== 'function' || window.confirm(t('confirmMerge')))) void store.merge(state.notice.runId)
+                                },
+                              }, t('merge'))
+                            : null)
                     : null)
               : null,
             groups,

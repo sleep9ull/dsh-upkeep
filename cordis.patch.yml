@@ -22,3 +22,6 @@
         targetVersion: ""
         feedTtlMinutes: 60
         checksToKeep: 20
+        defaultBaseBranch: main
+        # Merging stays off until both this flag and each merge confirmation agree.
+        allowMerge: false
