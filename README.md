@@ -75,6 +75,7 @@ The panel answers one question first: **what is this installation actually runni
 
 - The header shows the page title and gives you one button, **Refresh**.
 - The summary block shows the running DSH version, the profile name, the number of live plugin entries, and how many bundles are installed.
+- The bundle list is split into two visual groups: **My plugins** first (matched against your local identity), then **Other plugins** (other authors or unknown ownership). Each group has its own heading, count and empty state.
 - The bundle table lists each bundle with its version, state (`enabled`, `disabled`, `load error`), **owner** (`Mine` / `Other author` / `Unknown`) and **care** (`Needs care` / `Healthy` / `Unknown`). Hovering a verdict shows the evidence behind it.
 - Ownership is inferred, never assumed: the package scope, `author`, `repository`, and the git remote of a local checkout are matched against your identity — `ownerHandles` / `ownerEmails` in the plugin configuration, plus the `~/.gitconfig` name/email and the signed-in `gh` account. A plugin with no recognizable signal stays **Unknown**. The identity is whatever machine you run it on: another developer's installation resolves theirs, so the same plugin serves every author.
 - The care verdict is computed only for **Mine**: a declared incompatibility with the running DSH, or a plugin row that failed to load, marks the plugin **Needs care**; otherwise it is **Healthy** (with declared-range evaluation arriving in M1).

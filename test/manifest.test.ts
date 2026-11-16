@@ -63,6 +63,11 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   assert.match(client, /name: 'settings\.plugins\.tab'/)
   assert.match(client, /id: '@sleep9ull\/dsh-upkeep'/)
   assert.match(client, /inject: \['slots', 'locale', 'connection', 'layout'\]/)
+  // The panel separates the author's own plugins from everyone else's by group.
+  assert.match(client, /upkeep-groups/)
+  assert.match(client, /'data-group'/)
+  assert.match(client, /groupMine/)
+  assert.match(client, /groupOthers/)
 })
 
 test('both READMEs exist, link to each other, and ship with their license', () => {

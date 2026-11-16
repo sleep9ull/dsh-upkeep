@@ -188,6 +188,12 @@ interface Window {
         notMine: 'Not mine',
         myPlugins: 'My plugins',
         otherAuthors: 'Other authors',
+        groupMine: 'My plugins',
+        groupMineHint: 'Matched against this machine identity',
+        groupOthers: 'Other plugins',
+        groupOthersHint: 'Other authors or unknown ownership',
+        noMine: 'No plugin is recognized as yours. Set ownerHandles if that is wrong.',
+        noOthers: 'No other plugins.',
         empty: 'No bundles were reported.',
         warnings: 'Warnings',
         notConnected: 'The panel is not connected to the Host yet.',
@@ -230,6 +236,12 @@ interface Window {
         notMine: '—',
         myPlugins: '我的插件',
         otherAuthors: '他人插件',
+        groupMine: '我的插件',
+        groupMineHint: '按本机身份识别',
+        groupOthers: '其他插件',
+        groupOthersHint: '他人或归属未知',
+        noMine: '没有识别到属于你的插件。若判断有误，请设置 ownerHandles。',
+        noOthers: '没有其他插件。',
         empty: '没有读取到任何 bundle。',
         warnings: '提示',
         notConnected: '面板尚未连接到 Host。',
@@ -270,6 +282,11 @@ interface Window {
 [data-upkeep] .upkeep-empty { color: var(--dsw-alias-label-secondary); font-size: 12px; }
 [data-upkeep] .upkeep-note { color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.5; }
 [data-upkeep] .upkeep-muted { color: var(--dsw-alias-label-secondary); font-size: 11px; }
+[data-upkeep] .upkeep-groups { display: flex; flex-direction: column; gap: 18px; }
+[data-upkeep] .upkeep-group { display: flex; flex-direction: column; gap: 6px; }
+[data-upkeep] .upkeep-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 3px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+[data-upkeep] .upkeep-group-title { margin: 0; font-size: 12px; font-weight: 600; }
+[data-upkeep] .upkeep-group-hint { color: var(--dsw-alias-label-secondary); font-size: 11px; text-align: right; }
 @media (max-width: 520px) {
   [data-upkeep] .upkeep-head { flex-wrap: wrap; }
 }
@@ -391,6 +408,31 @@ interface Window {
         return chip(t('unknownCare'), 'warn', reasons)
       }
 
+      /** One bundle table; both groups reuse it so the columns stay identical. */
+      function renderBundleTable(bundles: BundleSummary[], t: Translate, emptyText: string): Child {
+        if (bundles.length === 0) return h('div', { className: 'upkeep-empty' }, emptyText)
+        return h('table', { className: 'upkeep-table' },
+          h('thead', null,
+            h('tr', null,
+              h('th', null, t('bundle')),
+              h('th', null, t('version')),
+              h('th', null, t('state')),
+              h('th', null, t('owner')),
+              h('th', null, t('care')),
+              h('th', { className: 'upkeep-num' }, t('rows')))),
+          h('tbody', null,
+            ...bundles.map((bundle, index) => {
+              const status = bundleState(bundle, t)
+              return h('tr', { key: (bundle.name || 'bundle') + '-' + index },
+                h('td', null, h('span', { className: 'upkeep-mono', title: bundle.source || '' }, bundle.name || t('unknown'))),
+                h('td', { className: 'upkeep-mono' }, bundle.version || '—'),
+                h('td', null, chip(status.label, status.state)),
+                h('td', null, ownerChip(bundle, t)),
+                h('td', null, careChip(bundle, t)),
+                h('td', { className: 'upkeep-num upkeep-mono' }, typeof bundle.rowCount === 'number' ? String(bundle.rowCount) : '—'))
+            })))
+      }
+
       /* ------------------------------------------------------------------ *
        * Tab body
        * ------------------------------------------------------------------ */
@@ -450,28 +492,24 @@ interface Window {
           : null
 
         const bundles = data && Array.isArray(data.bundles) ? data.bundles : []
-        const table = bundles.length === 0
-          ? h('div', { className: 'upkeep-empty' }, ready ? t('empty') : t('loading'))
-          : h('table', { className: 'upkeep-table' },
-              h('thead', null,
-                h('tr', null,
-                  h('th', null, t('bundle')),
-                  h('th', null, t('version')),
-                  h('th', null, t('state')),
-                  h('th', null, t('owner')),
-                  h('th', null, t('care')),
-                  h('th', { className: 'upkeep-num' }, t('rows')))),
-              h('tbody', null,
-                ...bundles.map((bundle, index) => {
-                  const status = bundleState(bundle, t)
-                  return h('tr', { key: (bundle.name || 'bundle') + '-' + index },
-                    h('td', null, h('span', { className: 'upkeep-mono', title: bundle.source || '' }, bundle.name || t('unknown'))),
-                    h('td', { className: 'upkeep-mono' }, bundle.version || '—'),
-                    h('td', null, chip(status.label, status.state)),
-                    h('td', null, ownerChip(bundle, t)),
-                    h('td', null, careChip(bundle, t)),
-                    h('td', { className: 'upkeep-num upkeep-mono' }, typeof bundle.rowCount === 'number' ? String(bundle.rowCount) : '—'))
-                })))
+        const ownerOf = (bundle: BundleSummary): string =>
+          bundle.owner && bundle.owner.status ? bundle.owner.status : 'unknown'
+        const mineBundles = bundles.filter(bundle => ownerOf(bundle) === 'mine')
+        const otherBundles = bundles.filter(bundle => ownerOf(bundle) !== 'mine')
+
+        /** One visually separated group: a heading line plus its own table. */
+        const group = (key: 'mine' | 'others', title: string, hint: string, rows: BundleSummary[], emptyText: string): Child =>
+          h('section', { className: 'upkeep-group', 'data-group': key },
+            h('div', { className: 'upkeep-group-head' },
+              h('h4', { className: 'upkeep-group-title' }, title + ' · ' + String(rows.length)),
+              h('span', { className: 'upkeep-group-hint' }, hint)),
+            renderBundleTable(rows, t, emptyText))
+
+        const groups = !ready && bundles.length === 0
+          ? h('div', { className: 'upkeep-empty' }, t('loading'))
+          : h('div', { className: 'upkeep-groups' },
+              group('mine', t('groupMine'), t('groupMineHint'), mineBundles, t('noMine')),
+              group('others', t('groupOthers'), t('groupOthersHint'), otherBundles, t('noOthers')))
 
         const actions = h('div', { className: 'upkeep-actions' },
           !page && openPanel
@@ -501,7 +539,7 @@ interface Window {
             h('dl', { className: 'upkeep-grid' }, ...summary.flatMap(([label, value]) => [h('dt', { key: 'dt-' + label }, label), h('dd', { key: 'dd-' + label }, value)])),
             h('div', { className: 'upkeep-mono' }, data && typeof data.checkedAt === 'number' ? relativeTime(data.checkedAt, locale) : ''),
             h('div', { className: 'upkeep-note' }, t('officialRule')),
-            table))
+            groups))
       }
 
       function TabBody(props: TabProps): Child {
