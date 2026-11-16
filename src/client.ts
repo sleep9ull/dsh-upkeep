@@ -263,13 +263,12 @@ interface Window {
         unknown: 'unknown',
         bundle: 'Bundle',
         version: 'Version',
-        state: 'State',
         enabled: 'enabled',
         disabled: 'disabled',
         failed: 'load error',
         excluded: 'Excluded',
         officialRule: 'Official @deepseek-ai packages ship with DSH and are not monitored.',
-        care: 'Care',
+        status: 'Status',
         needsCare: 'Needs care',
         healthy: 'Healthy',
         unknownCare: 'Unknown',
@@ -339,13 +338,12 @@ interface Window {
         unknown: '未知',
         bundle: 'Bundle',
         version: '版本',
-        state: '状态',
         enabled: '已启用',
         disabled: '已禁用',
         failed: '加载失败',
         excluded: '已排除',
         officialRule: '官方 @deepseek-ai 插件随 DSH 发布，不纳入监测。',
-        care: '维护',
+        status: '状态',
         needsCare: '需维护',
         healthy: '正常',
         unknownCare: '未知',
@@ -716,15 +714,14 @@ interface Window {
         bundles: BundleSummary[],
         t: Translate,
         emptyText: string,
-        options: { showCare: boolean; targetVersion: string | null; onUpgrade?: ((bundle: BundleSummary) => void) | null },
+        options: { mine: boolean; targetVersion: string | null; onUpgrade?: ((bundle: BundleSummary) => void) | null },
       ): Child {
         if (bundles.length === 0) return h('div', { className: 'upkeep-empty' }, emptyText)
         const headers: Child[] = [
           h('th', { key: 'bundle' }, t('bundle')),
           h('th', { key: 'version' }, t('version')),
-          h('th', { key: 'state' }, t('state')),
+          h('th', { key: 'status' }, t('status')),
         ]
-        if (options.showCare) headers.push(h('th', { key: 'care' }, t('care')))
 
         return h('div', { className: 'upkeep-table-scroll' },
           h('table', { className: 'upkeep-table' },
@@ -751,6 +748,7 @@ interface Window {
                   ? String(impact.matched) + ' ' + t('breakingChanges') + (impact.versions && impact.versions.length > 0 ? ' (' + impact.versions.join(', ') + ')' : '')
                   : ''
                 const detail = [
+                  status.label,
                   typeof bundle.rowCount === 'number' ? String(bundle.rowCount) + ' ' + t('entries') : '',
                   bundle.source || '',
                   ownershipEvidence,
@@ -758,24 +756,22 @@ interface Window {
                   targetText === '' ? '' : t('breaksOn') + ' ' + (options.targetVersion ?? '') + ': ' + targetText,
                   impactText,
                 ].filter(part => part !== '').join(' · ')
+                // Healthy plugins get no button: the action exists for work that needs doing.
+                const eligible = options.mine && options.onUpgrade && care === 'attention'
                 const cells: Child[] = [
                   h('td', { key: 'name', className: 'upkeep-name' },
                     h('span', { title: detail }, bundle.name || t('unknown'))),
                   h('td', { key: 'version' }, h('span', { className: 'upkeep-version' }, bundle.version || '—')),
-                  h('td', { key: 'state' }, chip(status.label, status.state)),
-                ]
-                if (options.showCare) {
-                  const eligible = options.onUpgrade && (care === 'attention' || (bundle.compat && bundle.compat.impact !== undefined && typeof bundle.compat.impact.matched === 'number' && bundle.compat.impact.matched > 0))
-                  cells.push(h('td', { key: 'care', className: 'upkeep-care' },
-                    careChip(bundle, t),
+                  h('td', { key: 'status', className: 'upkeep-care' },
+                    options.mine ? careChip(bundle, t) : chip(status.label, status.state),
                     eligible && options.onUpgrade
                       ? h('button', {
                           className: 'upkeep-btn upkeep-btn-xs',
                           type: 'button',
                           onClick: () => options.onUpgrade?.(bundle),
                         }, t('upgrade'))
-                      : null))
-                }
+                      : null),
+                ]
                 return h('tr', { key: (bundle.name || 'bundle') + '-' + index, 'data-care': care }, ...cells)
               }))))
       }
@@ -905,7 +901,7 @@ interface Window {
             collapsible && !open
               ? null
               : renderBundleTable(rows, t, emptyText, {
-                  showCare: key === 'mine',
+                  mine: key === 'mine',
                   targetVersion,
                   onUpgrade: key === 'mine' ? requestUpgrade : null,
                 }))

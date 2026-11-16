@@ -88,6 +88,12 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   assert.match(client, /noticeWarnings/)
   assert.match(client, /upkeep-notice-warnings/)
   assert.match(client, /NOTICE_WARNING_LIMIT/)
+  // Healthy plugins must never offer the upgrade action.
+  assert.match(client, /const eligible = options\.mine && options\.onUpgrade && care === 'attention'/)
+  assert.doesNotMatch(client, /care === 'attention' \|\|/)
+  // One status column: the live enabled flag moved into the row tooltip.
+  assert.doesNotMatch(client, /t\('state'\)/)
+  assert.match(client, /h\('th', \{ key: 'status' \}, t\('status'\)\)/)
 })
 
 test('both READMEs exist, link to each other, and ship with their license', () => {
