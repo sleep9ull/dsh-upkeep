@@ -855,6 +855,11 @@ interface Window {
         const mineCount = rollup && typeof rollup.mine === 'number' ? rollup.mine : mineBundles.length
         const careCount = careCountOf(data)
 
+        // Declared before the tables: they read these while rendering.
+        const scheduledInfo = data && data.scheduled ? data.scheduled : undefined
+        const scheduledAll = scheduledInfo !== undefined && scheduledInfo.all === true
+        const scheduledBundles = scheduledInfo !== undefined && Array.isArray(scheduledInfo.bundles) ? scheduledInfo.bundles : []
+
         // The sentence is the product: it answers "do my plugins need care" before any table.
         const statusText = !ready && !data
           ? t('loading')
@@ -985,9 +990,6 @@ interface Window {
                 onToggle: () => setOthersOpen((open: boolean) => !open),
               }))
 
-        const scheduledInfo = data && data.scheduled ? data.scheduled : undefined
-        const scheduledAll = scheduledInfo !== undefined && scheduledInfo.all === true
-        const scheduledBundles = scheduledInfo !== undefined && Array.isArray(scheduledInfo.bundles) ? scheduledInfo.bundles : []
         const busy = loading || state.phase === 'checking' || state.phase === 'upgrading'
         const actions = h('div', { className: 'upkeep-actions' },
           !page && openPanel

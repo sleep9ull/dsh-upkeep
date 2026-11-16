@@ -112,7 +112,7 @@ Loader 行接受以下配置（括号内为默认值）：
 
 ```sh
 npm install
-npm run verify       # 两端类型检查、构建、单测、客户端脚本语法检查
+npm run verify       # 两端类型检查、构建、全部测试，以及面板的无头渲染
 npm run verify:full  # 以上全部 + 包元数据 + profile 检查 + 真实 registry 读取
 ```
 

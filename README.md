@@ -112,7 +112,7 @@ The Loader row accepts the following configuration (defaults shown):
 
 ```sh
 npm install
-npm run verify       # type-check both halves, build, unit tests, client syntax check
+npm run verify       # type-check both halves, build, every test, and a headless render of the panel
 npm run verify:full  # everything above + package metadata + profile check + real registry read
 ```
 

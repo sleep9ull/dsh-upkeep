@@ -85,6 +85,11 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   // The author's ledger reports scheduled coverage per plugin.
   assert.match(client, /upkeep-scheduled/)
   assert.match(client, /newScheduled/)
+  // Values the tables read must be declared before the table is built: a temporal
+  // dead zone here blanks the whole panel at runtime, which no type check catches.
+  assert.ok(client.indexOf('const scheduledAll') < client.indexOf('const groups ='))
+  assert.ok(client.indexOf('const careCount') < client.indexOf('const groups ='))
+  assert.ok(client.indexOf('const requestUpgrade') < client.indexOf('const groups ='))
   // M3: the panel can prepare an upgrade session and verify it afterwards.
   assert.match(client, /upgrade.prepare/)
   assert.match(client, /upgrade.verify/)
