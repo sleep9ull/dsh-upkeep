@@ -552,6 +552,19 @@ idle
 - 新 action `report.get`（面板/工具同一实现）：返回单个 bundle 的窗口、指南来源、匹配条目（含 Change/Migration 原文）与扫描清单；面板行悬停显示「N breaking changes (vX)」。
 - 测试：新增 guides 3 条、surfaces 1 条、match 2 条、check/report 集成 1 条；总计 47 个单测通过。
 - 限制：`persistence-schema.json` 差异未做；GitHub 拉取受网络与限额影响，失败时只用安装版指南并给出 warning；真机远端路径需重启后验证。
+### M3 已完成（2026-11-16）
+
+- `src/host/exec.ts`：Host 半唯一的子进程 seam（argv 数组、超时、输出上限、注入式 runner），供 worktree 与验证命令使用，测试可完全替换。
+- `src/host/upgrade.ts`：`buildUpgradePrompt`（目标版本、命中的 Change/Migration、约束、验证命令，≤12k 字符）、`deriveVerifyCommands`（配置优先 → package scripts 的 check/test → build）、`inspectRepository`（git 根 + dirty 数）、`prepareWorkspace`（可选 `git worktree add -b upkeep/<bundle>-<stamp>`，默认直接用仓库）、`verifyWorkspace`（逐命令执行、非零/超时即失败）。
+- 三个 action（`kind: 'write'`）：
+  - `upgrade.prepare`：必须 `confirm: true`；校验归属（只允许自己的插件）、仓库、解析指南与命中、生成 prompt、注册 Workspace、写一条 run；返回 run（含 workspaceId/prompt）与 warnings。
+  - `upgrade.verify`：必须 `confirm: true`；在 run 的 workspace 跑验证命令，记录每条结果与最终状态（verified/failed）。
+  - `upgrade.runs`：列出已准备的 run 与结果。
+- Client：我的插件行在「需维护或有命中的破坏性变更」时出现「升级」按钮 → 两次确认（升级 / 是否 worktree）→ 调 prepare → 用返回的 workspaceId + prompt 打开新会话（`ctx.uiWorkspace.startSession`）；面板顶部出现升级通知，带「验证」按钮调用 verify 并显示 `{ok}/{total}` 结果。
+- 状态：`state.json` 增加有界 `runs`（默认 10 条），记录 prompt、workspace、验证结果。
+- 测试：升级单测 5 条 + Hub `upgrade.prepare`（confirm 门、worktree、workspace 注册、prompt 内容）与 `upgrade.verify` 集成 1 条；全套 53 个单测通过。
+- 未做/边界：PR 与合并留给 M4；L3/L4（`--dump-config`、headless 启动 oracle）未接入；Session 启动依赖 workspaceRegistry（缺失时报 `WORKSPACE_UNAVAILABLE`）；真机路径需重启 Host + 刷新页面验证。
+
 
 
 

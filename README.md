@@ -27,7 +27,7 @@ Two doors, one implementation: everything the panel can do is available to the a
 | Fixed **Upkeep** panel in the sidebar (level with Plugins), plus a tab in **Settings → Plugins**, status snapshot, ownership and care verdicts, `upkeep_status` tool | **Shipped (M0)** |
 | Target DSH awareness, declared-layer compatibility (running + projected), stored check history, **Check now** | **Shipped (M1)** |
 | Migration-guide matching and a per-plugin breakage report | **Shipped (M2)** |
-| One-click upgrade in a session or worktree, layered verification | Planned (M3) |
+| One-click upgrade in a session or worktree, layered verification | **Shipped (M3)** |
 | Human-confirmed PR / merge delivery | Planned (M4) |
 | Recurring checks through DSH's schedule service | Planned (M5) |
 | Release hardening, cross-version matrix, npm publish | Planned (M6) |
@@ -101,9 +101,9 @@ Because the verdict is computed from your plugins' manifests and the running ver
 
 A `check` also reads DSH's upgrade guides for the releases between the running and target DSH, scans each of your plugins for the surfaces it actually uses (packages, services, events, tools, commands, slots, patch rows, config keys), and matches the guide text against them. The panel shows the count on the row tooltip; the `upkeep_status` tool's `report.get` action returns the matched items with their Change and Migration sections and the surfaces that caused each match.
 
-## One-click upgrade (planned, M3–M4)
+## One-click upgrade (M3 delivered; PR delivery in M4)
 
-The upgrade is deliberately boring and reviewable:
+Press **Upgrade** on one of your plugins (the button appears when it needs care or a matched breaking change exists), confirm, and choose whether the edits run in a separate git worktree. Upkeep matches the guides, prepares the workspace, registers it, and opens a new session with a bounded prompt that names the exact Change/Migration items and the verification commands. The agent edits; you watch, steer and interrupt. Back in the panel, **Verify** runs the commands in that workspace and reports the per-command result.
 
 1. **Match** — scan the plugin's manifest, bundle patch, imports, services, events, tools, slots and persisted data, then select the migration-guide items that actually mention those surfaces.
 2. **Plan** — hand the matched `Change` / `Migration` text to a coding agent as a bounded task, with the files, the acceptance command and the stop conditions.

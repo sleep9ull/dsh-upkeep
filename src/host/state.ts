@@ -52,6 +52,21 @@ export interface StoredCheck {
   reports: StoredReport[]
 }
 
+/** One prepared upgrade run (M3). */
+export interface StoredRun {
+  id: string
+  bundle: string
+  status: 'prepared' | 'verified' | 'failed'
+  createdAt: number
+  workspacePath: string
+  workspaceId: string
+  worktree: boolean
+  branch?: string
+  prompt: string
+  verifyCommands: string[]
+  verify?: Array<{ command: string; exitCode: number | null; ok: boolean; output: string }>
+}
+
 /** The cached target-version answer from the registry. */
 export interface CachedFeed {
   fetchedAt: number
@@ -64,6 +79,7 @@ export interface UpkeepState {
   version: 1
   feed?: CachedFeed
   checks: StoredCheck[]
+  runs: StoredRun[]
 }
 
 /** The newest stored check, as the panel reads it. */
@@ -87,7 +103,7 @@ export function statePath(home: string): string {
 
 /** An empty state. */
 export function emptyState(): UpkeepState {
-  return { version: 1, checks: [] }
+  return { version: 1, checks: [], runs: [] }
 }
 
 /**
@@ -107,7 +123,8 @@ export function readState(home: string): UpkeepState {
     ? parsed.checks.filter((entry): entry is StoredCheck => isStoredCheck(entry))
     : []
   const feed = isCachedFeed(parsed.feed) ? parsed.feed : undefined
-  return { version: 1, ...(feed === undefined ? {} : { feed }), checks }
+  const runs = Array.isArray(parsed.runs) ? parsed.runs.filter((entry): entry is StoredRun => isStoredRun(entry)) : []
+  return { version: 1, ...(feed === undefined ? {} : { feed }), checks, runs }
 }
 
 /** Structural check for one stored check entry. */
@@ -120,6 +137,18 @@ function isStoredCheck(value: unknown): value is StoredCheck {
     && (typeof value.targetVersion === 'string' || value.targetVersion === null)
     && typeof value.total === 'number'
     && typeof value.needsCare === 'number'
+}
+
+/** Structural check for one stored run. */
+function isStoredRun(value: unknown): value is StoredRun {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && typeof value.bundle === 'string'
+    && typeof value.status === 'string'
+    && typeof value.createdAt === 'number'
+    && typeof value.workspacePath === 'string'
+    && typeof value.workspaceId === 'string'
+    && Array.isArray(value.prompt === undefined ? [] : value.verifyCommands)
 }
 
 /** Structural check for the cached feed. */
@@ -172,6 +201,17 @@ export function lastCheckView(state: UpkeepState): LastCheckView | undefined {
     total: check.total,
     needsCare: check.needsCare,
   }
+}
+
+/** Return a new state with one run prepended and older runs bounded. */
+export function appendRun(state: UpkeepState, run: StoredRun, keep: number): UpkeepState {
+  const limit = Math.min(Math.max(Math.trunc(keep), 1), 20)
+  return { ...state, runs: [run, ...state.runs].slice(0, limit) }
+}
+
+/** Replace one run by id; unknown ids leave the state unchanged. */
+export function updateRun(state: UpkeepState, id: string, patch: Partial<StoredRun>): UpkeepState {
+  return { ...state, runs: state.runs.map(run => (run.id === id ? { ...run, ...patch } : run)) }
 }
 
 /** Whether a state directory exists yet; used to avoid creating one on a read-only check. */

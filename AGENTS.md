@@ -38,7 +38,8 @@
 | `src/host/guides.ts` | 迁移指南：安装版目录解析、`[from,to)` 选择、固定 `## Change` / `## Migration` 章节；目标更新时按 `dsh-v<target>` 标签拉取缺失版本（有上限）。 |
 | `src/host/surfaces.ts` | 插件表面机械扫描：manifest、bundle patch、源码里的包/服务/事件/工具/命令/slot/config/row；文件数、大小、深度有界。 |
 | `src/host/match.ts` | 指南条目 × 表面 token 的机械匹配与打分，只留下有命中的条目；`summarizeMatches` 产出面板用的 impact。 |
-| `src/host/upgrade/` *(M3)* | 迁移匹配、worktree、会话启动、验证 oracle、状态机。 |
+| `src/host/exec.ts` | Host 半唯一子进程 seam：argv 数组、超时、输出上限、可注入 runner（worktree 与验证共用）。 |
+| `src/host/upgrade.ts` | 升级闭环：prompt 组装、验证命令推导、git 仓库探测、worktree 准备、逐命令验证。 |
 | `src/host/deliver/` *(M4)* | `git`/`gh`/`forge` 适配与确认门。 |
 | `src/client.ts` | Web 半：**一段编译脚本**（`module: none`，无 import/export），注册一级侧栏面板（`main` key + `sidebar.panellist` 图标，id `dsh-upkeep`）与 Plugins 设置页分页（同一 id，二级入口）；React 由 loader 的 `require` 提供。 |
 | `locale/en.json`、`locale/zh.json` | 插件展示元数据（`meta.title/description/detail`）。面板内文案在 `src/client.ts` 的 `en`/`zh` 字典。 |
@@ -57,7 +58,7 @@
 
 1. **两扇门，一次实现。** 行为只写在 `src/host/dispatch.ts`（及它委派的模块）；`rpc.ts`、`tool.ts`、`client.ts` 只做翻译。*检查：* 同一 operation 经任一门可用，且为它加能力时没有改两个适配器。
 2. **只读默认，写必确认。** 每个 action 显式声明 `kind`；`write` 需要用户显式确认，工具侧另经 `tools/pre-execute` 询问。*检查：* 未确认的写调用返回稳定错误码，面板弹出确认，模型路径出现审批。
-3. **交付由人确认（M3+）。** 推送与 PR 由 Host 在确认后执行，合并 main 是显式开关 + 每次确认；无人值守的子 agent 只做编辑与测试。*检查：* 默认路径只产出 PR；关掉开关时合并入口不可达。
+3. **交付由人确认（M4+）。** 推送与 PR 由 Host 在确认后执行，合并 main 是显式开关 + 每次确认；无人值守的子 agent 只做编辑与测试。*检查：* 默认路径只产出 PR；关掉开关时合并入口不可达。
 4. **证据优先。** 任何 DSH 行为断言都能指到安装版文件与行号，并写入 EVIDENCE.md；凭记忆的结论不算。*检查：* 新断言在 EVIDENCE.md 有对应行，且标注了版本。
 5. **判据与 DSH 一致（M1+）。** vendor 的 `compat.ts` 逐条对齐 `app-boot` 语义：`engines.dsh` 存在则独占判定；否则看 `@deepseek-ai/dsh*` peer；`includePrerelease: true`；`workspace:^|~|*` 改写为运行版本；空/非法范围判不满足；豁免只认精确 `name@version` → 精确 DSH 版本。*检查：* 与 DSH 源码对照的表格化单测；DSH 升级时重跑对照。
 6. **运行版本从 profile 取。** 用 `ctx.profileContext.installAnchor` 读运行中 `@deepseek-ai/dsh/package.json`；`DSH_INSTALL_DIR` 只是 shell 工具变量。*检查：* `src/` 里没有读该环境变量的 Host 代码；状态接口返回 `runtimeVersion`。
@@ -65,14 +66,12 @@
 8. **Client 是一段编译脚本。** `src/client.ts` 无 `import`/`export`、无 JSX、无 `@deepseek-ai/*` 引用；module id 等于包名；IIFE 带重复注册保护；颜色与间距只用主题 token（`--dsw-alias-*`、`--dsw-radius-*`），`icon.svg` 的插画配色除外；用户可见文案全部走 `ctx.locale` 的 `en`/`zh` 字典。*检查：* `tsc -p tsconfig.client.json`、`node --check dist/client.js`、`test/manifest.test.ts`。
 9. **展示元数据齐备。** 两个 locale 都有 `meta.title/description/detail`；`icon.svg` 为原创；`files` 覆盖全部运行时文件（含 `dist`、patch、locale、icon、detail）。*检查：* manifest 契约测试。
 10. **监测是拉取式的（M1+）。** DSH 没有 Host→浏览器推送；状态由面板按需拉取，后台检查把结果写进存储，通知靠客户端半渲染。*检查：* 关闭面板时检查仍可运行并落库；打开面板后无需重启即可读到。
-11. **升级在会话里发生（M3+）。** 被测仓库的代码由会话中的 agent 编辑（可选 worktree）；Host 负责准备、验证、交付。已安装 profile 的 `node_modules` 是只读输入。*检查：* 升级运行记录带 `sessionId`；Host 代码没有直接写被测仓库源文件的路径。
+11. **升级在会话里发生。** 被测仓库的代码由会话中的 agent 编辑（可选 worktree）；Host 负责准备、验证、交付。已安装 profile 的 `node_modules` 是只读输入。*检查：* 升级运行记录带 `sessionId`；Host 代码没有直接写被测仓库源文件的路径。
 12. **不虚构兼容结论。** 声明层、运行层、历史层分开呈现；读不到就显示未知并附原因，三种状态不合并成一个布尔值。*检查：* 断网/缺服务时 UI 显示"未知 + 原因"而不是"兼容"。
 13. **监测范围排除官方包。** `@deepseek-ai/*` 属于 DSH 本身、随 DSH 版本走，不进监测列表；状态与工具结果用 `excluded` 报告排除了多少 bundle / 条目，而不是静默丢弃。*检查：* `bundles` 里没有该 scope 的项，且 `excluded` 的计数与 `listBundles` / `listPlugins` 的差值一致。
 14. **归属判定有证据、可配置、未知就是未知。** `mine/other/unknown` 只能由 `src/host/owner.ts` 产出；每条判定带证据 token（`scope:`、`author:`、`repo:`、`remote:`、`local-checkout`、`no-metadata`），身份来自 `ownerHandles`/`ownerEmails` 配置、`~/.gitconfig` 与 gh 登录；没有信号时保持 `unknown`，绝不默认"是我的"。*检查：* owner 单测覆盖四类证据与"无元数据不猜测"；无身份时状态带警告且 `ownership` 全为 unknown。
-16. **报告只呈现有命中的条目。** `report.get` 与 `impact` 的每条命中都必须能指回具体的 `matchedSurfaces`；扫描与远端拉取都有上限，失败时降级为安装版指南并给出 warning，不假装完整。
-
 15. **目标版本不迷信 `latest`。** 目标版本只来自「配置的精确版本 / 桌面通道映射的 dist-tag / 已发布最大 semver」，`dist-tags.latest` 在 rc 周期会滞后；读到缓存标记 stale，读不到就是未知。*检查：* feed 单测覆盖 channel 映射、最大 semver 回退与 registry 失败回退。
-
+16. **报告只呈现有命中的条目。** `report.get` 与 `impact` 的每条命中都必须能指回具体的 `matchedSurfaces`；扫描与远端拉取都有上限，失败时降级为安装版指南并给出 warning，不假装完整。
 
 ## 新增一个 operation
 

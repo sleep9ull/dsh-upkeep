@@ -12,7 +12,7 @@ const TEST_HOME = mkdtempSync(join(tmpdir(), 'upkeep-hub-'))
 const TEST_DEPS = { home: TEST_HOME, startupCheck: false as const }
 
 /** A fake Host context exposing only the services a status read touches. */
-function fakeContext(overrides: { bundles?: unknown[]; plugins?: unknown[]; installAnchor?: string; profileDir?: string; home?: string; failBundles?: boolean } = {}): HostContext {
+function fakeContext(overrides: { bundles?: unknown[]; plugins?: unknown[]; installAnchor?: string; profileDir?: string; home?: string; failBundles?: boolean; workspaceRegistry?: unknown } = {}): HostContext {
   return {
     get(name: string) {
       if (name === 'profileContext') {
@@ -23,6 +23,7 @@ function fakeContext(overrides: { bundles?: unknown[]; plugins?: unknown[]; inst
           home: overrides.home ?? TEST_HOME,
         }
       }
+      if (name === 'workspaceRegistry') return overrides.workspaceRegistry
       if (name === 'pluginManager') {
         return {
           listBundles: async () => {
@@ -269,4 +270,64 @@ test('check matches migration guides and report.get returns the hits', async () 
   assert.equal(report.guideSource, 'installed')
   assert.ok(report.matched.length >= 1)
   assert.match(report.matched[0]?.change ?? '', /ctx\.tools/)
+})
+
+test('upgrade.prepare gated by confirm, registers a workspace, and verify records the run', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-m3-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-m3-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-m3-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(join(packageDir, 'src'), { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
+    name: '@sleep9ull/plugin',
+    version: '1.0.0',
+    engines: { dsh: '^0.2.2-rc.1' },
+    scripts: { test: 'node --version' },
+  }))
+  writeFileSync(join(packageDir, 'src', 'index.js'), "ctx.tools.register({})" + "\n")
+
+  const exec = {
+    run: async (command: string, args: string[]) => {
+      if (command === 'git' && args[0] === 'rev-parse') return { exitCode: 0, stdout: packageDir + '\n', stderr: '', timedOut: false }
+      if (command === 'git' && args[0] === 'status') return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
+      if (command === 'git' && args[0] === 'worktree') return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
+      return { exitCode: 0, stdout: 'ok', stderr: '', timedOut: false }
+    },
+  }
+
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [], source: 'link:' + packageDir }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+    workspaceRegistry: { create: async (path: string, title: string) => ({ id: 'ws-1', path, title }) },
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false, targetVersion: '0.2.2-rc.3', verifyCommands: ['npm test'] }), {
+    home, startupCheck: false, now: () => 5_000, exec,
+  })
+
+  await assert.rejects(
+    () => hub.call('upgrade.prepare', { bundle: '@sleep9ull/plugin', confirm: false }, { caller: 'client' }),
+    (error: unknown) => (error as { code?: string }).code === 'CONFIRM_REQUIRED',
+  )
+
+  const prepared = await hub.call('upgrade.prepare', {
+    bundle: '@sleep9ull/plugin', worktree: true, confirm: true,
+  }, { caller: 'client' }) as {
+    run: { id: string; workspaceId: string; workspacePath: string; worktree: boolean; prompt: string }
+  }
+  assert.equal(prepared.run.workspaceId, 'ws-1')
+  assert.equal(prepared.run.worktree, true)
+  assert.match(prepared.run.workspacePath, /-upkeep/)
+  assert.match(prepared.run.prompt, /@sleep9ull\/plugin/)
+  assert.match(prepared.run.prompt, /npm test/)
+  assert.equal(readState(home).runs.length, 1)
+
+  const verified = await hub.call('upgrade.verify', { runId: prepared.run.id, confirm: true }, { caller: 'client' }) as {
+    ok: boolean
+    results: Array<{ ok: boolean; command: string }>
+  }
+  assert.equal(verified.ok, true)
+  assert.equal(verified.results[0]?.command, 'npm test')
+  assert.equal(readState(home).runs[0]?.status, 'verified')
 })

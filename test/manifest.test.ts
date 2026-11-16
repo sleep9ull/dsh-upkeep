@@ -62,7 +62,7 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   assert.match(client, /name: 'sidebar\.panellist'/)
   assert.match(client, /name: 'settings\.plugins\.tab'/)
   assert.match(client, /id: '@sleep9ull\/dsh-upkeep'/)
-  assert.match(client, /inject: \['slots', 'locale', 'connection', 'layout'\]/)
+  assert.match(client, /inject: \['slots', 'locale', 'connection', 'layout', 'uiWorkspace'\]/)
   // The panel separates the author's own plugins from everyone else's by group.
   assert.match(client, /upkeep-groups/)
   assert.match(client, /'data-group'/)
@@ -79,6 +79,11 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   // M1: the panel can refresh the target from the registry and store a report.
   assert.match(client, /checkNow/)
   assert.match(client, /'check'/)
+  // M3: the panel can prepare an upgrade session and verify it afterwards.
+  assert.match(client, /upgrade.prepare/)
+  assert.match(client, /upgrade.verify/)
+  assert.match(client, /upkeep-notice/)
+  assert.match(client, /verifyNow/)
 })
 
 test('both READMEs exist, link to each other, and ship with their license', () => {

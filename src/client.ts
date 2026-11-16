@@ -122,8 +122,9 @@ type StatusSnapshot = {
   warnings?: string[]
 }
 
-type StorePhase = 'idle' | 'loading' | 'checking' | 'ready' | 'error'
-type StoreState = { phase: StorePhase; data: StatusSnapshot | null; error: RpcFailure | null }
+type StorePhase = 'idle' | 'loading' | 'checking' | 'upgrading' | 'ready' | 'error'
+type UpgradeNotice = { kind: 'ok' | 'error'; text: string; runId?: string }
+type StoreState = { phase: StorePhase; data: StatusSnapshot | null; error: RpcFailure | null; notice?: UpgradeNotice }
 type Store = {
   subscribe(listener: () => void): () => void
   get(): StoreState
@@ -131,6 +132,10 @@ type Store = {
   refresh(): Promise<void>
   /** Refresh the target from the registry, evaluate, and store one report. */
   check(): Promise<void>
+  /** Prepare a targeted upgrade and open the session with its prompt. */
+  upgrade(bundle: string, worktree: boolean): Promise<void>
+  /** Run the prepared verification commands for one run. */
+  verify(runId: string): Promise<void>
 }
 
 /* ---- the Cordis services the plugin is applied to ---------------- */
@@ -158,6 +163,8 @@ type ClientContext = {
   }
   /** Panel navigation; present whenever the shell is mounted. */
   layout: { selectPanel(panelId: string): void }
+  /** Start a Session in a prepared workspace with the upgrade prompt prefilled. */
+  uiWorkspace: { startSession(workspaceId?: string, options?: { prompt?: string }): void }
   locale: LocaleService
   slots: {
     inject(key: string, callback: () => unknown, label: string): unknown
@@ -267,6 +274,15 @@ interface Window {
         incompatible: 'incompatible',
         breaksOn: 'breaks on',
         breakingChanges: 'breaking changes',
+        upgrade: 'Upgrade',
+        upgradeConfirm: 'Prepare a targeted upgrade for {bundle}?',
+        worktreeConfirm: 'Edit in a separate git worktree instead of the checkout?',
+        upgrading: 'Preparing…',
+        upgradeFailed: 'The upgrade could not be prepared.',
+        preparedNotice: 'Upgrade task prepared for {bundle}; the session is open with the prompt.',
+        verifyNow: 'Verify',
+        verifyResult: 'Verification: {ok}/{total} commands passed.',
+        verifyNone: 'No verification commands ran.',
       }
 
       const zh: Record<string, string> = {
@@ -324,6 +340,15 @@ interface Window {
         incompatible: '不兼容',
         breaksOn: '将在',
         breakingChanges: '破坏性变更',
+        upgrade: '升级',
+        upgradeConfirm: '为 {bundle} 准备一次定向升级？',
+        worktreeConfirm: '在独立的 git worktree 中修改（而不是当前 checkout）？',
+        upgrading: '准备中…',
+        upgradeFailed: '无法准备升级。',
+        preparedNotice: '已为 {bundle} 准备升级任务，会话已带着提示词打开。',
+        verifyNow: '验证',
+        verifyResult: '验证结果：{ok}/{total} 个命令通过。',
+        verifyNone: '没有可运行的验证命令。',
       }
 
       const CSS = `
@@ -382,6 +407,10 @@ interface Window {
 
 [data-upkeep] .upkeep-empty { padding: 14px 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 [data-upkeep] .upkeep-muted { color: var(--dsw-alias-label-secondary); font-size: 11px; }
+[data-upkeep] .upkeep-care { display: flex; align-items: center; gap: 8px; }
+[data-upkeep] .upkeep-btn-xs { padding: 1px 8px; font-size: 10px; line-height: 1.5; }
+[data-upkeep] .upkeep-notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0 6px 12px; border-left: 2px solid var(--dsw-alias-brand-primary); font-size: 11px; line-height: 1.55; }
+[data-upkeep] .upkeep-notice[data-kind="error"] { border-left-color: var(--dsw-alias-state-error-primary); }
 [data-upkeep] .upkeep-footer { display: flex; flex-direction: column; gap: 3px; padding-top: 12px; border-top: 1px solid var(--dsw-alias-border-l1); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.55; }
 
 @media (max-width: 640px) {
@@ -424,7 +453,7 @@ interface Window {
        * Store: one status snapshot, one in-flight read at a time.
        * ------------------------------------------------------------------ */
 
-      function createStore(ctx: ClientContext): Store {
+      function createStore(ctx: ClientContext, t: Translate): Store {
         let state: StoreState = { phase: 'idle', data: null, error: null }
         const listeners = new Set<() => void>()
         let running = false
@@ -447,6 +476,59 @@ interface Window {
           }
         }
 
+        const upgrade = async (bundle: string, worktree: boolean): Promise<void> => {
+          publish({ phase: 'upgrading', data: state.data, error: null })
+          try {
+            const answer = await callHost(ctx, 'upgrade.prepare', { bundle, worktree, confirm: true })
+            if (!answer.ok) {
+              publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'error', text: answer.error.code + ': ' + answer.error.message } })
+              return
+            }
+            const value = answer.value as {
+              run?: { id?: string; workspaceId?: string; prompt?: string }
+            } | null
+            const run = value && value.run ? value.run : null
+            if (!run || typeof run.workspaceId !== 'string' || typeof run.prompt !== 'string') {
+              publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'error', text: t('upgradeFailed') } })
+              return
+            }
+            try {
+              ctx.uiWorkspace.startSession(run.workspaceId, { prompt: run.prompt })
+            } catch {
+              // The shell may be mid-reload; the run is stored either way.
+            }
+            publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'ok', text: t('preparedNotice', { bundle }), runId: run.id } })
+          } finally {
+            running = false
+          }
+        }
+
+        const verify = async (runId: string): Promise<void> => {
+          publish({ phase: 'checking', data: state.data, error: null, notice: state.notice })
+          try {
+            const answer = await callHost(ctx, 'upgrade.verify', { runId, confirm: true })
+            if (!answer.ok) {
+              publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'error', text: answer.error.code + ': ' + answer.error.message, runId } })
+              return
+            }
+            const value = answer.value as { results?: Array<{ ok?: boolean }> } | null
+            const results = value && Array.isArray(value.results) ? value.results : []
+            const passed = results.filter(result => result.ok === true).length
+            publish({
+              phase: 'ready',
+              data: state.data,
+              error: null,
+              notice: {
+                kind: passed === results.length && results.length > 0 ? 'ok' : 'error',
+                text: results.length === 0 ? t('verifyNone') : t('verifyResult', { ok: passed, total: results.length }),
+                runId,
+              },
+            })
+          } finally {
+            running = false
+          }
+        }
+
         return {
           subscribe(listener: () => void) {
             listeners.add(listener)
@@ -455,6 +537,8 @@ interface Window {
           get() { return state },
           async refresh() { await read('status', 'loading') },
           async check() { await read('check', 'checking') },
+          upgrade,
+          verify,
         }
       }
 
@@ -512,7 +596,7 @@ interface Window {
         bundles: BundleSummary[],
         t: Translate,
         emptyText: string,
-        options: { showCare: boolean; targetVersion: string | null },
+        options: { showCare: boolean; targetVersion: string | null; onUpgrade?: ((bundle: BundleSummary) => void) | null },
       ): Child {
         if (bundles.length === 0) return h('div', { className: 'upkeep-empty' }, emptyText)
         const headers: Child[] = [
@@ -560,7 +644,18 @@ interface Window {
                   h('td', { key: 'version' }, h('span', { className: 'upkeep-version' }, bundle.version || '—')),
                   h('td', { key: 'state' }, chip(status.label, status.state)),
                 ]
-                if (options.showCare) cells.push(h('td', { key: 'care' }, careChip(bundle, t)))
+                if (options.showCare) {
+                  const eligible = options.onUpgrade && (care === 'attention' || (bundle.compat && bundle.compat.impact !== undefined && typeof bundle.compat.impact.matched === 'number' && bundle.compat.impact.matched > 0))
+                  cells.push(h('td', { key: 'care', className: 'upkeep-care' },
+                    careChip(bundle, t),
+                    eligible && options.onUpgrade
+                      ? h('button', {
+                          className: 'upkeep-btn upkeep-btn-xs',
+                          type: 'button',
+                          onClick: () => options.onUpgrade?.(bundle),
+                        }, t('upgrade'))
+                      : null))
+                }
                 return h('tr', { key: (bundle.name || 'bundle') + '-' + index, 'data-care': care }, ...cells)
               }))))
       }
@@ -690,7 +785,16 @@ interface Window {
               : renderBundleTable(rows, t, emptyText, {
                   showCare: key === 'mine',
                   targetVersion,
+                  onUpgrade: key === 'mine' ? requestUpgrade : null,
                 }))
+        }
+
+        const requestUpgrade = (bundle: BundleSummary): void => {
+          const name = bundle.name || ''
+          if (name === '') return
+          if (typeof window.confirm === 'function' && !window.confirm(t('upgradeConfirm', { bundle: name }))) return
+          const worktree = typeof window.confirm === 'function' ? window.confirm(t('worktreeConfirm')) : false
+          void store.upgrade(name, worktree)
         }
 
         const targetVersion = data && data.target && data.target.version ? data.target.version : null
@@ -711,7 +815,7 @@ interface Window {
                 onToggle: () => setOthersOpen((open: boolean) => !open),
               }))
 
-        const busy = loading || state.phase === 'checking'
+        const busy = loading || state.phase === 'checking' || state.phase === 'upgrading'
         const actions = h('div', { className: 'upkeep-actions' },
           !page && openPanel
             ? h('button', { className: 'upkeep-btn', type: 'button', onClick: openPanel }, t('openPanel'))
@@ -723,7 +827,7 @@ interface Window {
             disabled: busy,
             'aria-busy': state.phase === 'checking' ? 'true' : 'false',
             onClick: () => { void store.check() },
-          }, state.phase === 'checking' ? t('checking') : t('checkNow')),
+          }, state.phase === 'checking' ? t('checking') : state.phase === 'upgrading' ? t('upgrading') : t('checkNow')),
           h('button', {
             className: 'upkeep-btn',
             type: 'button',
@@ -752,6 +856,13 @@ interface Window {
             h('div', { className: 'upkeep-meta' }, ...facts),
             failure,
             warning,
+            state.notice
+              ? h('div', { className: 'upkeep-notice', 'data-kind': state.notice.kind, role: 'status' },
+                  h('span', null, state.notice.text),
+                  state.notice.runId
+                    ? h('button', { className: 'upkeep-btn', type: 'button', onClick: () => { if (state.notice?.runId) void store.verify(state.notice.runId) } }, t('verifyNow'))
+                    : null)
+              : null,
             groups,
             footer))
       }
@@ -818,8 +929,8 @@ interface Window {
        * ------------------------------------------------------------------ */
 
       function apply(ctx: ClientContext): void {
-        const store = createStore(ctx)
         const t = ctx.locale.bind(NS)
+        const store = createStore(ctx, t)
 
         const openPanel = (): void => {
           try {
@@ -871,7 +982,7 @@ interface Window {
       }
 
       return {
-        inject: ['slots', 'locale', 'connection', 'layout'],
+        inject: ['slots', 'locale', 'connection', 'layout', 'uiWorkspace'],
         apply,
       }
     },

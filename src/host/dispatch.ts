@@ -26,6 +26,8 @@ import { classifyOwnership, readInstalledManifest, readInstalledPackageDir, read
 import type { OwnerIdentity, OwnershipVerdict } from './owner.js'
 import {
   appendCheck,
+  appendRun,
+  updateRun,
   lastCheckView,
   readState,
   writeState,
@@ -44,6 +46,15 @@ import {
 import { fetchRemoteGuides, readInstalledGuides, type GuideSet } from './guides.js'
 import { summarizeMatches, matchGuides, type ImpactSummary, type GuideMatch } from './match.js'
 import { scanSurfaces, type SurfaceInventory } from './surfaces.js'
+import { createExecRunner, type ExecRunner } from './exec.js'
+import {
+  buildUpgradePrompt,
+  deriveVerifyCommands,
+  inspectRepository,
+  prepareWorkspace,
+  verifyWorkspace,
+  type UpgradeRunRecord,
+} from './upgrade.js'
 import { compareVersions, parseVersion } from './versions.js'
 
 /** The plugin's own version, read once from the package manifest beside `dist/`. */
@@ -85,6 +96,10 @@ export interface HubConfig {
   checksToKeep: number
   /** Whether a check also matches the migration guides against each plugin's surfaces. */
   analyzeOnCheck: boolean
+  /** Commands `upgrade.verify` runs; empty derives them from the package scripts. */
+  verifyCommands: string[]
+  /** How many upgrade runs to retain in the state file. */
+  runsToKeep: number
   /** How many entries a check may inspect concurrently. */
   concurrency: number
   /** Directory under which upgrade worktrees are created; empty means the repository's sibling directory. */
@@ -109,6 +124,18 @@ function normalizeConfigList(value: unknown): string[] {
   return [...seen]
 }
 
+/** Split a config value into shell command strings, preserving case. */
+function normalizeCommandList(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : typeof value === 'string' ? value.split('\n') : []
+  const commands: string[] = []
+  for (const entry of raw) {
+    if (typeof entry !== 'string') continue
+    const command = entry.trim()
+    if (command !== '') commands.push(command)
+  }
+  return commands.slice(0, 6)
+}
+
 /** Read a bounded integer config value. */
 function normalizeInteger(value: unknown, fallback: number, minimum: number, maximum: number): number {
   const number = typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : fallback
@@ -125,6 +152,8 @@ export function normalizeConfig(raw: unknown): HubConfig {
     checkOnStartup: config.checkOnStartup !== false,
     checksToKeep: normalizeInteger(config.checksToKeep, 20, 1, 100),
     analyzeOnCheck: config.analyzeOnCheck !== false,
+    verifyCommands: normalizeCommandList(config.verifyCommands),
+    runsToKeep: normalizeInteger(config.runsToKeep, 10, 1, 20),
     concurrency: normalizeInteger(config.concurrency, 2, 1, 8),
     worktreeRoot: typeof config.worktreeRoot === 'string' ? config.worktreeRoot : '',
     ownerHandles: normalizeConfigList(config.ownerHandles),
@@ -238,6 +267,8 @@ export interface StatusSnapshot {
 /** Injectable environment, so tests can run the Hub without a plugin context, network or timer. */
 export interface HubDeps {
   fetchImpl?: typeof fetch
+  /** Command runner for worktrees and verification; tests inject a fake. */
+  exec?: ExecRunner
   now?: () => number
   home?: string
   /** Disable the delayed startup check (tests). */
@@ -436,7 +467,36 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     emails: config.ownerEmails,
     autoDetect: config.autoDetectOwner,
   })
+  const exec = deps.exec ?? createExecRunner()
   let startupTimer: ReturnType<typeof setTimeout> | undefined
+
+  /** Resolve one monitored bundle listing by package name. */
+  async function monitoredListing(name: string): Promise<BundleListing | undefined> {
+    if (manager === undefined) return undefined
+    let listed: unknown[] = []
+    try {
+      listed = await manager.listBundles()
+    } catch {
+      return undefined
+    }
+    return listed
+      .map(readBundleListing)
+      .filter((entry): entry is BundleListing => entry !== undefined)
+      .find(entry => entry.base.name === name && !isOfficialPackage(entry.base.name))
+  }
+
+  /** Register a prepared directory as a Workspace so a Session can open there. */
+  async function registerWorkspace(path: string, title: string): Promise<string> {
+    const value = ctx.get('workspaceRegistry')
+    if (!isRecord(value) || typeof value.create !== 'function') {
+      throw new HubError('WORKSPACE_UNAVAILABLE', 'The workspace registry is not mounted; open the repository as a workspace manually.')
+    }
+    const created: unknown = await (value.create as (path: string, title?: string) => Promise<unknown>).call(value, path, title)
+    if (!isRecord(created) || typeof created.id !== 'string') {
+      throw new HubError('WORKSPACE_UNAVAILABLE', 'The workspace registry did not return a workspace id.')
+    }
+    return created.id
+  }
 
   /** The registry list to ask, from the plugin manager when it exposes one. */
   async function registryPlan(): Promise<string[]> {
@@ -721,6 +781,93 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
           warnings: [...loaded.warnings, ...analysis.warnings],
         }
       },
+    },
+    'upgrade.prepare': {
+      kind: 'write',
+      description: 'Prepare a targeted upgrade: match the guides, optionally create a worktree, register its workspace and return the Session prompt.',
+      run: async (input) => {
+        if (input.confirm !== true) throw new HubError('CONFIRM_REQUIRED', 'Preparing an upgrade needs confirm: true.')
+        const name = typeof input.bundle === 'string' ? input.bundle.trim() : ''
+        if (name === '') throw new HubError('INVALID_INPUT', 'upgrade.prepare needs a bundle name')
+        const listing = await monitoredListing(name)
+        if (listing === undefined) throw new HubError('UNKNOWN_BUNDLE', `No monitored bundle named ${name}`)
+        const facts = readPackageFacts(name, listing.base.source ?? undefined, profile?.dir, profile?.installAnchor)
+        const ownership = classifyOwnership(facts, ownerIdentity, name)
+        if (ownership.status !== 'mine') throw new HubError('NOT_MINE', 'Only your own plugins can be upgraded.')
+
+        const packageDir = readInstalledPackageDir(name, listing.base.source ?? undefined, profile?.dir, profile?.installAnchor)
+        if (packageDir === undefined) throw new HubError('NO_SOURCE', 'The package directory could not be resolved.')
+        const repo = await inspectRepository(exec, packageDir)
+        if (repo === undefined) throw new HubError('NOT_A_REPOSITORY', 'The plugin directory is not inside a git checkout.')
+
+        const status = await buildSnapshot()
+        const loaded = await loadGuides()
+        const analysis = await analyzeBundle(listing, loaded.guides)
+        const manifest = readInstalledManifest(name, listing.base.source ?? undefined, profile?.dir, profile?.installAnchor)
+        const verifyCommands = deriveVerifyCommands(config.verifyCommands, manifest)
+        const stamp = now().toString(36)
+        const prepared = await prepareWorkspace({
+          exec,
+          repoRoot: repo.repoRoot,
+          worktree: input.worktree === true,
+          worktreeRoot: config.worktreeRoot,
+          bundle: name,
+          stamp,
+        })
+        const workspaceId = await registerWorkspace(prepared.workspacePath, `Upkeep: ${name}`)
+        const prompt = buildUpgradePrompt({
+          bundle: name,
+          repoPath: repo.repoRoot,
+          workspacePath: prepared.workspacePath,
+          from: status.dsh.runtimeVersion,
+          to: status.target.version,
+          matches: analysis.matches,
+          verifyCommands,
+        })
+        const run: UpgradeRunRecord = {
+          id: `run-${stamp}`,
+          bundle: name,
+          status: 'prepared',
+          createdAt: now(),
+          workspacePath: prepared.workspacePath,
+          workspaceId,
+          worktree: prepared.worktree,
+          ...(prepared.branch === undefined ? {} : { branch: prepared.branch }),
+          prompt,
+          verifyCommands,
+        }
+        const current = readState(home)
+        writeState(home, appendRun(current, run, config.runsToKeep))
+        const warnings = [...loaded.warnings, ...analysis.warnings, ...prepared.warnings]
+        if (repo.dirty > 0) warnings.push(`The repository has ${repo.dirty} uncommitted change(s); the worktree starts from HEAD.`)
+        return { run, from: status.dsh.runtimeVersion, to: status.target.version, matches: analysis.matches, verifyCommands, warnings }
+      },
+    },
+    'upgrade.verify': {
+      kind: 'write',
+      description: 'Run the prepared verification commands in the run workspace and record the outcome.',
+      run: async (input) => {
+        if (input.confirm !== true) throw new HubError('CONFIRM_REQUIRED', 'Verifying a run needs confirm: true.')
+        const runId = typeof input.runId === 'string' ? input.runId : ''
+        if (runId === '') throw new HubError('INVALID_INPUT', 'upgrade.verify needs a runId')
+        const current = readState(home)
+        const run = current.runs.find(entry => entry.id === runId)
+        if (run === undefined) throw new HubError('UNKNOWN_RUN', `No upgrade run named ${runId}`)
+        const results = await verifyWorkspace({ exec, workspacePath: run.workspacePath, commands: run.verifyCommands })
+        const ok = results.every(result => result.ok)
+        const next = updateRun(current, runId, {
+          status: ok ? 'verified' : 'failed',
+          verify: results.map(result => ({ command: result.command, exitCode: result.exitCode, ok: result.ok, output: result.output })),
+        })
+        writeState(home, next)
+        const updated = next.runs.find(entry => entry.id === runId) ?? run
+        return { run: updated, results, ok }
+      },
+    },
+    'upgrade.runs': {
+      kind: 'read',
+      description: 'Prepared upgrade runs with their status and verification outcome.',
+      run: async () => ({ runs: readState(home).runs }),
     },
     'bundles.list': {
       kind: 'read',
