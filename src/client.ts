@@ -412,8 +412,11 @@ interface Window {
 [data-upkeep] .upkeep-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 0 0 6px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
 [data-upkeep] .upkeep-group-toggle { width: 100%; margin: 0; background: transparent; border: none; border-bottom: 1px solid var(--dsw-alias-border-l2); color: inherit; font: inherit; text-align: left; cursor: pointer; }
 [data-upkeep] .upkeep-group-toggle:hover .upkeep-group-title { color: var(--dsw-alias-brand-primary); }
-[data-upkeep] .upkeep-group-left { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-[data-upkeep] .upkeep-group-chevron { flex: none; width: 11px; color: var(--dsw-alias-label-secondary); font-size: 10px; }
+[data-upkeep] .upkeep-group-left { display: flex; align-items: center; gap: 6px; min-width: 0; }
+[data-upkeep] .upkeep-group-caret { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; color: var(--dsw-alias-label-secondary); }
+[data-upkeep] .upkeep-group-caret svg { display: block; transition: transform 160ms ease; }
+[data-upkeep] .upkeep-group-toggle[aria-expanded="true"] .upkeep-group-caret svg { transform: rotate(90deg); }
+[data-upkeep] .upkeep-group-toggle:hover .upkeep-group-caret { color: var(--dsw-alias-label-primary); }
 [data-upkeep] .upkeep-group-title { margin: 0; font-size: 12px; font-weight: 600; }
 [data-upkeep] .upkeep-group-hint { color: var(--dsw-alias-label-secondary); font-size: 11px; text-align: right; }
 
@@ -846,7 +849,9 @@ interface Window {
                 onClick: options.onToggle,
               },
               h('span', { className: 'upkeep-group-left' },
-                h('span', { className: 'upkeep-group-chevron' }, open ? '▾' : '▸'),
+                h('span', { className: 'upkeep-group-caret', 'aria-hidden': 'true' },
+                  h('svg', { width: 9, height: 9, viewBox: '0 0 9 9', focusable: 'false' },
+                    h('path', { d: 'M2.6 1.2 L7.1 4.5 L2.6 7.8 Z', fill: 'currentColor' }))),
                 h('span', { className: 'upkeep-group-title' }, label)),
               h('span', { className: 'upkeep-group-hint' }, hint))
             : h('div', { className: 'upkeep-group-head' },
