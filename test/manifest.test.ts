@@ -118,6 +118,11 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   assert.match(client, /\.upkeep-col-version \{ width: 84px; \}/)
   assert.match(client, /\.upkeep-col-status \{ width: 168px; \}/)
   assert.match(client, /\.upkeep-col-scheduled \{ width: 140px; \}/)
+  // Controls follow the host metrics: a 28px row, radius-sm, a hairline border.
+  assert.match(client, /height: 28px; margin: 0; padding: 0 10px; border: \.5px solid/)
+  assert.match(client, /--dsw-radius-sm, 6px/)
+  assert.match(client, /--dsw-alias-bg-mask-1, rgb\(0 0 0 \/ 0\.32\)/)
+  assert.match(client, /.upkeep-btn:focus-visible/)
   // The sidebar label carries the pending-care count; the glyph stays decorative.
   assert.match(client, /function careCountOf/)
   assert.match(client, /labelCareMany/)
