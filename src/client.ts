@@ -288,8 +288,7 @@ interface Window {
         warnings: 'Warnings',
         notConnected: 'The panel is not connected to the Host yet.',
         retry: 'Retry',
-        checkNow: 'Check now',
-        checking: 'Checking…',
+        refreshing: 'Refreshing…',
         targetVersion: 'Target',
         lastCheck: 'Last check',
         notChecked: 'not checked yet',
@@ -365,8 +364,7 @@ interface Window {
         warnings: '提示',
         notConnected: '面板尚未连接到 Host。',
         retry: '重试',
-        checkNow: '立即检查',
-        checking: '检查中…',
+        refreshing: '刷新中…',
         targetVersion: '目标版本',
         lastCheck: '上次检查',
         notChecked: '尚未检查',
@@ -970,6 +968,8 @@ interface Window {
           !page && openPanel
             ? h('button', { className: 'upkeep-btn', type: 'button', onClick: openPanel }, t('openPanel'))
             : null,
+          // One button: reuse the cached target when it is fresh, otherwise fetch it,
+          // then re-evaluate and re-match the guides.
           h('button', {
             className: 'upkeep-btn',
             type: 'button',
@@ -977,14 +977,7 @@ interface Window {
             disabled: busy,
             'aria-busy': state.phase === 'checking' ? 'true' : 'false',
             onClick: () => { void store.check() },
-          }, state.phase === 'checking' ? t('checking') : state.phase === 'upgrading' ? t('upgrading') : t('checkNow')),
-          h('button', {
-            className: 'upkeep-btn',
-            type: 'button',
-            disabled: busy,
-            'aria-busy': loading ? 'true' : 'false',
-            onClick: () => { void store.refresh() },
-          }, loading ? t('loading') : t('refresh')),
+          }, state.phase === 'checking' ? t('refreshing') : state.phase === 'upgrading' ? t('upgrading') : t('refresh')),
           h('button', {
             className: 'upkeep-btn',
             type: 'button',

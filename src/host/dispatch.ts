@@ -712,7 +712,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
   }
 
   /** Run one check: refresh the target, evaluate everything, store the report. */
-  async function runCheck(call: CallContext): Promise<StatusSnapshot> {
+  async function runCheck(call: CallContext, force = false): Promise<StatusSnapshot> {
     call.signal?.throwIfAborted()
     const warnings: string[] = []
     const state = readState(home)
@@ -720,7 +720,13 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     let cachedFeed = state.feed
 
     const configured = config.targetVersion.trim()
-    if (configured === '' || parseVersion(configured) === undefined) {
+    const pinning = configured !== '' && parseVersion(configured) !== undefined
+    // The panel has one refresh button, so a check must respect the TTL: a fresh
+    // cached answer is reused instead of asking the registry on every click. An
+    // explicit force (the tool input) skips that shortcut.
+    const cachedTarget = targetFromState(config, state, now())
+    const freshCache = cachedTarget.source === 'cache' && !cachedTarget.stale
+    if (!pinning && (force || !freshCache)) {
       const registries = await registryPlan()
       const channelHint = config.targetChannel === 'auto' ? detectDesktopChannel(profile?.installAnchor) : config.targetChannel
       const fetched = await fetchTargetVersion({ registries, channelHint, fetchImpl: deps.fetchImpl })
@@ -800,7 +806,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     check: {
       kind: 'read',
       description: 'Refresh the target DSH version from the registry, evaluate every bundle and store one report.',
-      run: async (_input, call) => await exclusive('check', async () => await runCheck(call)),
+      run: async (input, call) => await exclusive('check', async () => await runCheck(call, input.force === true)),
     },
     'report.get': {
       kind: 'read',

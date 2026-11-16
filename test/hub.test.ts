@@ -443,3 +443,55 @@ test('without the schedule service the actions degrade explicitly', async () => 
   const listed = await hub.call('schedule.list', {}, { caller: 'client' }) as { tasks: unknown[]; available: boolean }
   assert.deepEqual(listed, { tasks: [], available: false })
 })
+
+test('one refresh button: a check reuses a fresh cached target and only refetches when it must', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-ttl-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-ttl-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-ttl-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(packageDir, { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
+    name: '@sleep9ull/plugin',
+    version: '1.0.0',
+    engines: { dsh: '>=0.2.2-rc.1 <0.3.0' },
+  }))
+
+  let clock = 1_000
+  let fetches = 0
+  const fetchImpl = (async () => {
+    fetches += 1
+    return new Response(JSON.stringify({
+      versions: { '0.2.2-rc.3': {} },
+      'dist-tags': { next: '0.2.2-rc.3', latest: '0.2.2-rc.3' },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [] }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false, feedTtlMinutes: 60 }), {
+    home, startupCheck: false, fetchImpl, now: () => clock,
+  })
+
+  await hub.call('check', {}, { caller: 'client' })
+  assert.equal(fetches, 1)
+
+  // Inside the TTL the cached answer wins: no second network round trip, but the
+  // evaluation and the stored report still happen.
+  clock += 5 * 60_000
+  await hub.call('check', {}, { caller: 'client' })
+  assert.equal(fetches, 1)
+  assert.equal(readState(home).checks.length, 2)
+
+  // An explicit force asks the registry anyway.
+  await hub.call('check', { force: true }, { caller: 'client' })
+  assert.equal(fetches, 2)
+
+  // Past the TTL the cache is stale, so the next click refetches on its own.
+  clock += 61 * 60_000
+  await hub.call('check', {}, { caller: 'client' })
+  assert.equal(fetches, 3)
+})

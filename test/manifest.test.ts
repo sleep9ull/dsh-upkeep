@@ -76,9 +76,10 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   assert.match(client, /upkeep-meta/)
   assert.match(client, /upkeep-footer/)
   assert.match(client, /upkeep-table-scroll/)
-  // M1: the panel can refresh the target from the registry and store a report.
-  assert.match(client, /checkNow/)
-  assert.match(client, /'check'/)
+  // M1: one Refresh button triggers the check that fetches the target and stores a report.
+  assert.match(client, /refreshing/)
+  assert.match(client, /t\('check'\)|'check'/)
+  assert.doesNotMatch(client, /checkNow/)
   // M3: the panel can prepare an upgrade session and verify it afterwards.
   assert.match(client, /upgrade.prepare/)
   assert.match(client, /upgrade.verify/)
