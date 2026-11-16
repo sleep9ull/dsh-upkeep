@@ -123,6 +123,12 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   assert.match(client, /--dsw-radius-sm, 6px/)
   assert.match(client, /--dsw-alias-bg-mask-1, rgb\(0 0 0 \/ 0\.32\)/)
   assert.match(client, /.upkeep-btn:focus-visible/)
+  // The meta line names versions and counts; it no longer reports when the check ran.
+  assert.doesNotMatch(client, /lastCheck/)
+  assert.doesNotMatch(client, /relativeTime/)
+  // The meta line is versions only: no bundle or entry totals.
+  assert.doesNotMatch(client, /key: 'bundles'/)
+  assert.doesNotMatch(client, /key: 'entries'/)
   // The sidebar label carries the pending-care count; the glyph stays decorative.
   assert.match(client, /function careCountOf/)
   assert.match(client, /labelCareMany/)

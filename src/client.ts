@@ -90,14 +90,6 @@ type TargetVersion = {
   stale?: boolean
 }
 
-type LastCheckView = {
-  at?: number
-  runtimeVersion?: string | null
-  targetVersion?: string | null
-  total?: number
-  needsCare?: number
-}
-
 type BundleSummary = {
   name?: string
   version?: string | null
@@ -118,7 +110,6 @@ type StatusSnapshot = {
   dsh?: { runtimeVersion?: string | null; installAnchor?: string | null }
   profile?: { name?: string | null; dir?: string | null }
   target?: TargetVersion
-  lastCheck?: LastCheckView
   delivery?: { allowMerge?: boolean; baseBranch?: string }
   capabilities?: { schedule?: boolean; workspaceRegistry?: boolean }
   scheduled?: {
@@ -317,7 +308,6 @@ interface Window {
         retry: 'Retry',
         refreshing: 'Refreshing…',
         targetVersion: 'Target',
-        lastCheck: 'Last check',
         notChecked: 'not checked yet',
         cached: 'cached',
         incompatible: 'incompatible',
@@ -409,7 +399,6 @@ interface Window {
         retry: '重试',
         refreshing: '刷新中…',
         targetVersion: '目标版本',
-        lastCheck: '上次检查',
         notChecked: '尚未检查',
         cached: '缓存',
         incompatible: '不兼容',
@@ -780,26 +769,6 @@ interface Window {
        * View helpers
        * ------------------------------------------------------------------ */
 
-      function relativeTime(timestamp: number | undefined, locale: string): string {
-        if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) return ''
-        const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000))
-        const steps: Array<[number, string, string]> = [
-          [60, 'second', '秒'],
-          [60, 'minute', '分钟'],
-          [24, 'hour', '小时'],
-          [30, 'day', '天'],
-        ]
-        let value = seconds
-        let unit = 'second'
-        let unitZh = '秒'
-        for (const [size, name, nameZh] of steps) {
-          if (value < size) break
-          value = Math.floor(value / size)
-          unit = name
-          unitZh = nameZh
-        }
-        return locale === 'zh' ? `${value} ${unitZh}前` : `${value} ${unit}${value === 1 ? '' : 's'} ago`
-      }
 
       function bundleState(bundle: BundleSummary, t: Translate): { label: string; state: 'ok' | 'warn' | 'error' } {
         if (bundle.error) return { label: t('failed'), state: 'error' }
@@ -1019,20 +988,10 @@ interface Window {
           ? target.version + (target.channel ? ' (' + target.channel + ')' : '') + (target.stale ? ' · ' + t('cached') : '')
           : t('notChecked')
         facts.push(h('span', { key: 'target' }, t('targetVersion') + ' ', h('b', null, targetText)))
-        if (data && data.lastCheck && typeof data.lastCheck.at === 'number') {
-          facts.push(h('span', { key: 'last-check' }, t('lastCheck') + ' ', h('b', null, relativeTime(data.lastCheck.at, locale))))
-        }
         const profileName = data && data.profile && data.profile.name ? data.profile.name : t('unknown')
         facts.push(h('span', { key: 'profile' }, t('profile') + ' ', h('b', null, profileName)))
-        facts.push(h('span', { key: 'bundles' }, t('bundles') + ' ', h('b', null, String(bundles.length))))
-        if (data && data.plugins && typeof data.plugins.entryCount === 'number') {
-          facts.push(h('span', { key: 'entries' }, t('entries') + ' ', h('b', null, String(data.plugins.entryCount))))
-        }
         if (data && data.plugin && data.plugin.version) {
           facts.push(h('span', { key: 'upkeep' }, t('pluginVersion') + ' ', h('b', null, data.plugin.version)))
-        }
-        if (data && typeof data.checkedAt === 'number') {
-          facts.push(h('span', { key: 'checked' }, relativeTime(data.checkedAt, locale)))
         }
 
         const warning = data && Array.isArray(data.warnings) && data.warnings.length > 0
