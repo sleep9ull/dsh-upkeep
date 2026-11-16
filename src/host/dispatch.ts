@@ -47,7 +47,7 @@ import { fetchRemoteGuides, readInstalledGuides, type GuideSet } from './guides.
 import { summarizeMatches, matchGuides, type ImpactSummary, type GuideMatch } from './match.js'
 import { scanSurfaces, type SurfaceInventory } from './surfaces.js'
 import { createExecRunner, type ExecRunner } from './exec.js'
-import { createUpkeepTask, listUpkeepTasks, parseUpkeepTitle, scheduleService } from './schedule.js'
+import { createUpkeepTask, listUpkeepTasks, scheduleService, scheduledTaskViews } from './schedule.js'
 import {
   buildDeliveryText,
   commitWorkspace,
@@ -280,7 +280,7 @@ export interface StatusSnapshot {
   /** Optional Host services the profile actually mounted. */
   capabilities: { schedule: boolean; workspaceRegistry: boolean }
   /** Scheduled checks already created through the schedule service. */
-  scheduled: { available: boolean; all: boolean; bundles: string[] }
+  scheduled: { available: boolean; tasks: Array<{ bundle: string | null; title: string; everySeconds: number | null; nextAt: string | null }> }
   /** Authorship rollup plus the identity it was matched against. */
   ownership: {
     mine: number
@@ -511,24 +511,17 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     }
   }
 
-  /** Which plugins a live scheduled task already watches. */
-  async function readScheduled(): Promise<{ available: boolean; all: boolean; bundles: string[] }> {
+  /** Which plugins a live scheduled task already watches, with its cadence. */
+  async function readScheduled(): Promise<{
+    available: boolean
+    tasks: Array<{ bundle: string | null; title: string; everySeconds: number | null; nextAt: string | null }>
+  }> {
     const service = scheduleService(ctx)
-    if (service === undefined) return { available: false, all: false, bundles: [] }
+    if (service === undefined) return { available: false, tasks: [] }
     try {
-      const tasks = await listUpkeepTasks(service)
-      const live = tasks.filter(task => task.status !== 'paused' && task.status !== 'ended')
-      const bundles: string[] = []
-      let all = false
-      for (const task of live) {
-        const scope = parseUpkeepTitle(task.title)
-        if (scope === null) continue
-        if (scope.kind === 'all') all = true
-        else if (!bundles.includes(scope.bundle)) bundles.push(scope.bundle)
-      }
-      return { available: true, all, bundles }
+      return { available: true, tasks: scheduledTaskViews(await service.catalog()) }
     } catch {
-      return { available: true, all: false, bundles: [] }
+      return { available: true, tasks: [] }
     }
   }
 

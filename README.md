@@ -50,13 +50,13 @@ Use the profile that runs your Web UI (`web` for an npm install, `desktop` for t
 
 | Entry | What it does |
 |---|---|
-| **Upkeep panel** | A fixed icon in the left sidebar panel list, level with **Plugins** and **Automation tasks**. One sentence at the top answers the maintenance question; below it is a ledger of every monitored plugin — its version, one status column (Healthy / Needs care / Unknown, or the live state for other authors' plugins), and, for your own plugins, a Scheduled column that says whether a recurring check already covers it. The live enabled flag, entry count, install spec and compatibility requirements live in the row tooltip. The sidebar entry gains a parenthetical count whenever something needs care — `Upkeep (2 need care)` — and stays bare while everything is healthy. |
+| **Upkeep panel** | A fixed icon in the left sidebar panel list, level with **Plugins** and **Automation tasks**. One sentence at the top answers the maintenance question; below it is a ledger of every monitored plugin — its version, one status column (Healthy / Needs care / Unknown, or the live state for other authors' plugins), and, for your own plugins, a Scheduled column that either offers **Create** or shows how often that plugin is already checked. The live enabled flag, entry count, install spec and compatibility requirements live in the row tooltip. The sidebar entry gains a parenthetical count whenever something needs care — `Upkeep (2 need care)` — and stays bare while everything is healthy. |
 | **Settings → Plugins → Upkeep** | The same view from the plugin manager page, with a shortcut to the full panel. |
 | **`upkeep_status` tool** | What the model sees: the same snapshot, plus `check`, `bundles.list` and `report.get` actions for the matched migration items. |
 | **Refresh** | The one button: re-reads the plugins, evaluates them against the running and target release, re-matches the migration guides, and stores one report. A cached target younger than `feedTtlMinutes` is reused, so a click does not always mean a registry round trip; the agent tool can pass `force` when it really wants a fresh answer. |
 | **Upgrade** | Appears only on your plugins that need care (never on a healthy row, even when the migration report matched something): confirm, choose worktree or not, and a session opens with the prepared prompt. |
 | **Verify / Create PR / Merge** | After the agent's edits: run the verification commands, then open a pull request, and merge only when enabled. |
-| **New Scheduled** | Creates a recurring compatibility check through DSH's schedule service; the ledger's **Scheduled** column then marks the plugins it covers. |
+| **Scheduled** (per row) | A **Create** button on a row with no recurring check creates one for that single plugin; once it exists the cell shows the cadence instead (`Every 24h`), with the task name and next run in its tooltip. One plugin per click. |
 
 ## How compatibility is decided
 
@@ -82,7 +82,7 @@ The panel shows the count on the row tooltip; `report.get` returns the matched i
 
 ## Scheduled upkeep
 
-**New Scheduled** creates a recurring task (default every 24 hours) through DSH's own schedule service, and the **Scheduled** column of your ledger shows which plugins it watches — a pause on the Automation tasks page clears the mark again. Each delivery starts a session with a prompt that refreshes the target, runs the check and reports which of your plugins need care and which migration items matched. The task never edits repositories; upgrades remain behind the panel's buttons. Manage or pause it on DSH's **Automation tasks** page.
+Each plugin can watch itself: press **Create** in its Scheduled cell to make a recurring task (default every 24 hours, `scheduleIntervalHours`) through DSH's own schedule service, delivering a prompt that checks that one plugin. The cell then shows the cadence, and its tooltip carries the task name and the next run. Pausing a task on the Automation tasks page brings **Create** back. Each delivery starts a session with a prompt that refreshes the target, runs the check and reports which of your plugins need care and which migration items matched. The task never edits repositories; upgrades remain behind the panel's buttons. Manage or pause it on DSH's **Automation tasks** page.
 
 ## Configuration
 

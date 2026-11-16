@@ -496,7 +496,7 @@ test('one refresh button: a check reuses a fresh cached target and only refetche
   assert.equal(fetches, 3)
 })
 
-test('the snapshot reports which plugins a scheduled task already covers', async () => {
+test('the snapshot reports the task that watches each plugin, with its cadence', async () => {
   const home = mkdtempSync(join(tmpdir(), 'upkeep-sched-'))
   const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-sched-profile-'))
   const installDir = mkdtempSync(join(tmpdir(), 'upkeep-sched-runtime-'))
@@ -510,7 +510,14 @@ test('the snapshot reports which plugins a scheduled task already covers', async
   const tasks: Array<Record<string, unknown>> = []
   const schedule = {
     create: async (request: unknown) => {
-      const entry = { id: 'task-' + String(tasks.length + 1), status: 'active', ...(request as Record<string, unknown>) }
+      const body = request as { title: string; timing: { every_seconds: number } }
+      const entry = {
+        id: 'task-' + String(tasks.length + 1),
+        status: 'active',
+        everySeconds: body.timing.every_seconds,
+        scheduledAt: '2026-11-17T00:00:00.000Z',
+        ...body,
+      }
       tasks.push(entry)
       return entry
     },
@@ -522,35 +529,31 @@ test('the snapshot reports which plugins a scheduled task already covers', async
     installAnchor: join(installDir, 'package.json'),
     home,
     schedule,
-  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false }), TEST_DEPS)
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false, scheduleIntervalHours: 6 }), TEST_DEPS)
 
-  const before = await hub.call('status', {}, { caller: 'client' }) as {
-    scheduled: { available: boolean; all: boolean; bundles: string[] }
+  type ScheduledView = {
+    scheduled: { available: boolean; tasks: Array<{ bundle: string | null; title: string; everySeconds: number | null; nextAt: string | null }> }
   }
+  const before = await hub.call('status', {}, { caller: 'client' }) as ScheduledView
   assert.equal(before.scheduled.available, true)
-  assert.equal(before.scheduled.all, false)
-  assert.deepEqual(before.scheduled.bundles, [])
+  assert.deepEqual(before.scheduled.tasks, [])
 
-  // A bundle-scoped task covers exactly that plugin.
+  // One task per plugin: the row can then show its cadence.
   await hub.call('schedule.create', { confirm: true, bundle: '@sleep9ull/plugin' }, { caller: 'client' })
-  const scoped = await hub.call('status', {}, { caller: 'client' }) as {
-    scheduled: { available: boolean; all: boolean; bundles: string[] }
-  }
-  assert.equal(scoped.scheduled.all, false)
-  assert.deepEqual(scoped.scheduled.bundles, ['@sleep9ull/plugin'])
+  const scoped = await hub.call('status', {}, { caller: 'client' }) as ScheduledView
+  assert.equal(scoped.scheduled.tasks.length, 1)
+  assert.equal(scoped.scheduled.tasks[0]?.bundle, '@sleep9ull/plugin')
+  assert.equal(scoped.scheduled.tasks[0]?.title, 'Upkeep: @sleep9ull/plugin')
+  assert.equal(scoped.scheduled.tasks[0]?.everySeconds, 6 * 3_600)
+  assert.equal(scoped.scheduled.tasks[0]?.nextAt, '2026-11-17T00:00:00.000Z')
 
-  // The profile-wide task covers everything.
+  // A profile-wide task reports a null bundle so every row can show it.
   await hub.call('schedule.create', { confirm: true }, { caller: 'client' })
-  const wide = await hub.call('status', {}, { caller: 'client' }) as {
-    scheduled: { available: boolean; all: boolean; bundles: string[] }
-  }
-  assert.equal(wide.scheduled.all, true)
+  const wide = await hub.call('status', {}, { caller: 'client' }) as ScheduledView
+  assert.ok(wide.scheduled.tasks.some(task => task.bundle === null))
 
-  // Paused tasks stop covering anything.
+  // Paused tasks stop counting.
   tasks.forEach(task => { task.status = 'paused' })
-  const paused = await hub.call('status', {}, { caller: 'client' }) as {
-    scheduled: { available: boolean; all: boolean; bundles: string[] }
-  }
-  assert.equal(paused.scheduled.all, false)
-  assert.deepEqual(paused.scheduled.bundles, [])
+  const paused = await hub.call('status', {}, { caller: 'client' }) as ScheduledView
+  assert.deepEqual(paused.scheduled.tasks, [])
 })

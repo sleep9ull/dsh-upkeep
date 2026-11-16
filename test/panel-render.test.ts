@@ -171,7 +171,15 @@ const SNAPSHOT = {
   excluded: { bundles: 4, entries: 12 },
   warnings: ['The DSH version feed is unavailable; using the cached target.'],
   capabilities: { schedule: true, workspaceRegistry: true },
-  scheduled: { available: true, all: false, bundles: ['@sleep9ull/careful'] },
+  scheduled: {
+    available: true,
+    tasks: [{
+      bundle: '@sleep9ull/careful',
+      title: 'Upkeep: @sleep9ull/careful',
+      everySeconds: 86_400,
+      nextAt: '2026-11-17T00:00:00.000Z',
+    }],
+  },
   delivery: { allowMerge: false, baseBranch: 'main' },
 }
 
@@ -211,8 +219,10 @@ test('the panel renders the ledger, its columns and the care sentence', () => {
   assert.match(markup, /Scheduled/)
   // The care row offers Upgrade; the healthy one does not.
   assert.equal((markup.match(/>Upgrade</g) ?? []).length, 1)
-  // A scheduled task covers exactly one of the two.
-  assert.equal((markup.match(/upkeep-chip" data-state="ok" title="A recurring check/g) ?? []).length, 1)
+  // The plugin with a task shows its cadence; the other offers Create.
+  assert.equal((markup.match(/Every 24h/g) ?? []).length, 1)
+  assert.equal((markup.match(/>Create</g) ?? []).length, 1)
+  assert.doesNotMatch(markup, /New Scheduled/)
 })
 
 test('the panel renders its loading, empty and error states', () => {

@@ -84,7 +84,10 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   assert.match(client, /min-width: 7\.4em/)
   // The author's ledger reports scheduled coverage per plugin.
   assert.match(client, /upkeep-scheduled/)
-  assert.match(client, /newScheduled/)
+  // Scheduling is per row: no global button, one Create action per uncovered plugin.
+  assert.doesNotMatch(client, /newScheduled/)
+  assert.match(client, /const requestSchedule = /)
+  assert.match(client, /upkeep-cadence/)
   // Values the tables read must be declared before the table is built: a temporal
   // dead zone here blanks the whole panel at runtime, which no type check catches.
   assert.ok(client.indexOf('const scheduledAll') < client.indexOf('const groups ='))

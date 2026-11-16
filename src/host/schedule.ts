@@ -106,6 +106,37 @@ export async function createUpkeepTask(
   return { id, title: createdTitle, timing }
 }
 
+/** One scheduled check, reduced to what the panel shows. */
+export interface ScheduledTaskView {
+  /** The package this task watches, or `null` when it watches every plugin. */
+  bundle: string | null
+  title: string
+  /** Fixed interval in seconds; absent for a calendar-shaped task. */
+  everySeconds: number | null
+  /** The next occurrence, ISO-8601, when the service reported one. */
+  nextAt: string | null
+}
+
+/** Reduce a live catalog to the tasks this plugin owns and the panel can show. */
+export function scheduledTaskViews(entries: unknown[]): ScheduledTaskView[] {
+  const views: ScheduledTaskView[] = []
+  for (const entry of entries) {
+    if (!isRecord(entry)) continue
+    const title = typeof entry.title === 'string' ? entry.title : ''
+    const scope = parseUpkeepTitle(title)
+    if (scope === null) continue
+    const status = typeof entry.status === 'string' ? entry.status : null
+    if (status === 'paused' || status === 'ended') continue
+    views.push({
+      bundle: scope.kind === 'all' ? null : scope.bundle,
+      title,
+      everySeconds: typeof entry.everySeconds === 'number' ? entry.everySeconds : null,
+      nextAt: typeof entry.scheduledAt === 'string' ? entry.scheduledAt : null,
+    })
+  }
+  return views
+}
+
 /** List the tasks this plugin created, newest fields preserved as-is. */
 export async function listUpkeepTasks(service: ScheduleServiceLike): Promise<Array<{
   id: string | null

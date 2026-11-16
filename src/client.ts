@@ -111,7 +111,10 @@ type StatusSnapshot = {
   lastCheck?: LastCheckView
   delivery?: { allowMerge?: boolean; baseBranch?: string }
   capabilities?: { schedule?: boolean; workspaceRegistry?: boolean }
-  scheduled?: { available?: boolean; all?: boolean; bundles?: string[] }
+  scheduled?: {
+    available?: boolean
+    tasks?: Array<{ bundle?: string | null; title?: string; everySeconds?: number | null; nextAt?: string | null }>
+  }
   bundles?: BundleSummary[]
   plugins?: { entryCount?: number | null }
   excluded?: { bundles?: number; entries?: number }
@@ -143,8 +146,8 @@ type Store = {
   createPr(runId: string): Promise<void>
   /** Merge the run's pull request (only when the Host allows merging). */
   merge(runId: string): Promise<void>
-  /** Create the recurring compatibility check through the schedule service. */
-  createSchedule(): Promise<void>
+  /** Create the recurring compatibility check for one plugin. */
+  createSchedule(bundle: string): Promise<void>
 }
 
 /* ---- the Cordis services the plugin is applied to ---------------- */
@@ -312,11 +315,13 @@ interface Window {
         confirmMerge: 'Merge this pull request now?',
         prCreated: 'Pull request created:',
         mergeDone: 'Pull request merged.',
-        newScheduled: 'New Scheduled',
         scheduled: 'Scheduled',
-        scheduledHint: 'A recurring check covers this plugin.',
-        confirmSchedule: 'Create a recurring compatibility check?',
-        scheduleCreated: 'Scheduled: {title}. Manage it on the Automation tasks page.',
+        create: 'Create',
+        every: 'Every',
+        nextRun: 'Next',
+        createScheduleHint: 'Create a recurring check for this plugin.',
+        confirmSchedule: 'Create a recurring compatibility check for {bundle}?',
+        scheduleCreated: 'Scheduled for {bundle}. Manage it on the Automation tasks page.',
         scheduleUnavailable: 'The schedule service is not mounted in this profile.',
       }
 
@@ -390,11 +395,13 @@ interface Window {
         confirmMerge: '现在合并这个 PR？',
         prCreated: 'PR 已创建：',
         mergeDone: 'PR 已合并。',
-        newScheduled: '新建定时',
         scheduled: '定时',
-        scheduledHint: '已有周期性检查覆盖这个插件。',
-        confirmSchedule: '创建一个周期性兼容性检查任务？',
-        scheduleCreated: '已创建：{title}。可在 Automation tasks 页面管理。',
+        create: '创建',
+        every: '每',
+        nextRun: '下次',
+        createScheduleHint: '为这个插件创建周期性检查。',
+        confirmSchedule: '为 {bundle} 创建周期性兼容性检查？',
+        scheduleCreated: '已为 {bundle} 创建定时检查。可在 Automation tasks 页面管理。',
         scheduleUnavailable: '当前 profile 未挂载定时任务服务。',
       }
 
@@ -639,20 +646,24 @@ interface Window {
           }
         }
 
-        const createSchedule = async (): Promise<void> => {
+        const createSchedule = async (bundle: string): Promise<void> => {
           publish({ phase: 'checking', data: state.data, error: null, notice: state.notice })
+          let created = false
           try {
-            const answer = await callHost(ctx, 'schedule.create', { confirm: true })
+            const answer = await callHost(ctx, 'schedule.create', { bundle, confirm: true })
             if (!answer.ok) {
               publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'error', text: answer.error.code + ': ' + answer.error.message } })
               return
             }
             const value = answer.value as { task?: { title?: string } } | null
             const title = value && value.task && typeof value.task.title === 'string' ? value.task.title : ''
-            publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'ok', text: t('scheduleCreated', { title }) } })
+            publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'ok', text: t('scheduleCreated', { title, bundle }) } })
+            created = true
           } finally {
             running = false
           }
+          // Re-read the snapshot so this row switches from Create to its cadence.
+          if (created) await read('status', 'loading')
         }
 
         const verify = async (runId: string): Promise<void> => {
@@ -754,8 +765,11 @@ interface Window {
         options: {
           mine: boolean
           targetVersion: string | null
-          scheduled: { all: boolean; bundles: string[] }
+          taskFor: (name: string) => { everySeconds?: number | null; nextAt?: string | null; title?: string } | undefined
+          describeEvery: (seconds: number) => string
+          scheduleAvailable: boolean
           onUpgrade?: ((bundle: BundleSummary) => void) | null
+          onSchedule?: ((bundle: BundleSummary) => void) | null
         },
       ): Child {
         if (bundles.length === 0) return h('div', { className: 'upkeep-empty' }, emptyText)
@@ -816,12 +830,30 @@ interface Window {
                       : null),
                 ]
                 if (options.mine) {
-                  const covered = options.scheduled.all
-                    || (typeof bundle.name === 'string' && options.scheduled.bundles.includes(bundle.name))
+                  const name = typeof bundle.name === 'string' ? bundle.name : ''
+                  const task = options.taskFor(name)
+                  const cadence = task !== undefined && typeof task.everySeconds === 'number'
+                    ? t('every') + ' ' + options.describeEvery(task.everySeconds)
+                    : task !== undefined
+                      ? t('scheduledOn')
+                      : ''
+                  const nextAt = task !== undefined && typeof task.nextAt === 'string' ? task.nextAt : ''
+                  const hint = [
+                    task !== undefined && typeof task.title === 'string' ? task.title : '',
+                    nextAt === '' || Number.isNaN(Date.parse(nextAt)) ? '' : t('nextRun') + ' ' + new Date(nextAt).toLocaleString(),
+                  ].filter(part => part !== '').join(' · ')
                   cells.push(h('td', { key: 'scheduled', className: 'upkeep-scheduled' },
-                    covered
-                      ? chip('✓', 'ok', t('scheduledHint'))
-                      : h('span', { className: 'upkeep-muted' }, '—')))
+                    task !== undefined
+                      ? h('span', { className: 'upkeep-cadence', title: hint }, cadence)
+                      : options.onSchedule !== null && options.onSchedule !== undefined
+                        ? h('button', {
+                            className: 'upkeep-btn upkeep-btn-xs',
+                            type: 'button',
+                            disabled: !options.scheduleAvailable,
+                            title: options.scheduleAvailable ? t('createScheduleHint') : t('scheduleUnavailable'),
+                            onClick: () => options.onSchedule?.(bundle),
+                          }, t('create'))
+                        : h('span', { className: 'upkeep-muted' }, '—')))
                 }
                 return h('tr', { key: (bundle.name || 'bundle') + '-' + index, 'data-care': care }, ...cells)
               }))))
@@ -857,8 +889,20 @@ interface Window {
 
         // Declared before the tables: they read these while rendering.
         const scheduledInfo = data && data.scheduled ? data.scheduled : undefined
-        const scheduledAll = scheduledInfo !== undefined && scheduledInfo.all === true
-        const scheduledBundles = scheduledInfo !== undefined && Array.isArray(scheduledInfo.bundles) ? scheduledInfo.bundles : []
+        const scheduledTasks = scheduledInfo !== undefined && Array.isArray(scheduledInfo.tasks) ? scheduledInfo.tasks : []
+        const scheduleAvailable = data && data.capabilities ? data.capabilities.schedule !== false : true
+        /** The live task that watches one bundle: its own, or the profile-wide one. */
+        const taskFor = (name: string): typeof scheduledTasks[number] | undefined =>
+          scheduledTasks.find(task => typeof task.bundle === 'string' && task.bundle === name)
+          ?? scheduledTasks.find(task => task.bundle === null || task.bundle === undefined)
+        /** One short, locale-neutral cadence such as `24h` or `30m`. */
+        const describeEvery = (seconds: number): string => {
+          // Days only past a day, so a daily check reads "24h" rather than "1d".
+          if (seconds > 86_400 && seconds % 86_400 === 0) return String(seconds / 86_400) + 'd'
+          if (seconds >= 3_600 && seconds % 3_600 === 0) return String(seconds / 3_600) + 'h'
+          const minutes = Math.max(1, Math.round(seconds / 60))
+          return String(minutes) + 'm'
+        }
 
         // The sentence is the product: it answers "do my plugins need care" before any table.
         const statusText = !ready && !data
@@ -959,9 +1003,19 @@ interface Window {
               : renderBundleTable(rows, t, emptyText, {
                   mine: key === 'mine',
                   targetVersion,
-                  scheduled: { all: scheduledAll, bundles: scheduledBundles },
+                  taskFor,
+                  describeEvery,
+                  scheduleAvailable,
                   onUpgrade: key === 'mine' ? requestUpgrade : null,
+                  onSchedule: key === 'mine' ? requestSchedule : null,
                 }))
+        }
+
+        const requestSchedule = (bundle: BundleSummary): void => {
+          const name = bundle.name || ''
+          if (name === '') return
+          if (typeof window.confirm === 'function' && !window.confirm(t('confirmSchedule', { bundle: name }))) return
+          void store.createSchedule(name)
         }
 
         const requestUpgrade = (bundle: BundleSummary): void => {
@@ -1005,15 +1059,7 @@ interface Window {
             'aria-busy': state.phase === 'checking' ? 'true' : 'false',
             onClick: () => { void store.check() },
           }, state.phase === 'checking' ? t('refreshing') : state.phase === 'upgrading' ? t('upgrading') : t('refresh')),
-          h('button', {
-            className: 'upkeep-btn',
-            type: 'button',
-            disabled: busy || (data && data.capabilities ? data.capabilities.schedule === false : false),
-            title: data && data.capabilities && data.capabilities.schedule === false ? t('scheduleUnavailable') : undefined,
-            onClick: () => {
-              if (typeof window.confirm !== 'function' || window.confirm(t('confirmSchedule'))) void store.createSchedule()
-            },
-          }, t('newScheduled')))
+        )
 
         return h('div', {
           'data-upkeep': '',
