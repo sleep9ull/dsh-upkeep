@@ -1177,10 +1177,7 @@ interface Window {
           name: 'sidebar.panellist',
           id: PANEL_ID,
           order: 30,
-          label: () => {
-            const count = badge.get()
-            return count > 0 ? t('panel') + ' · ' + String(count) : t('panel')
-          },
+          label: () => t('panel'),
           locale: NS,
         }, PanelIcon), 'upkeep: sidebar panel icon')
 
