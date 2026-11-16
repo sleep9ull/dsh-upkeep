@@ -19,7 +19,7 @@
 
 ## 当前状态
 
-进度、验收标准和已确认决策只在 [PLAN §10–§11](docs/PLAN.md) 维护：M0（脚手架 + 真机激活）、M1（兼容监测）、M2（迁移报告）、M3（定向升级与验证）已完成；M4（交付）起为后续里程碑。本文件只写不随里程碑变化的规则，避免两处状态各自漂移。
+进度、验收标准和已确认决策只在 [PLAN §10–§11](docs/PLAN.md) 维护：M0（脚手架 + 真机激活）、M1（兼容监测）、M2（迁移报告）、M3（定向升级与验证）已完成；M4（交付）、M5（定时巡检）已完成，M6（加固与发布）进行中。本文件只写不随里程碑变化的规则，避免两处状态各自漂移。
 
 ## Layout
 
@@ -41,6 +41,7 @@
 | `src/host/exec.ts` | Host 半唯一子进程 seam：argv 数组、超时、输出上限、可注入 runner（worktree 与验证共用）。 |
 | `src/host/upgrade.ts` | 升级闭环：prompt 组装、验证命令推导、git 仓库探测、worktree 准备、逐命令验证。 |
 | `src/host/deliver.ts` | 交付：preview（分支/dirty/ahead/diff/gh 状态）、commit、push、`gh pr create`、`gh pr merge`、worktree 清理；全部有界、argv 数组、确认门。 |
+| `src/host/schedule.ts` | 周期检查：结构化读取 `ctx.schedule`，映射 `every` 定时与 `new_once` 目标；间隔钳制、任务标题前缀过滤。 |
 | `src/client.ts` | Web 半：**一段编译脚本**（`module: none`，无 import/export），注册一级侧栏面板（`main` key + `sidebar.panellist` 图标，id `dsh-upkeep`）与 Plugins 设置页分页（同一 id，二级入口）；React 由 loader 的 `require` 提供。 |
 | `locale/en.json`、`locale/zh.json` | 插件展示元数据（`meta.title/description/detail`）。面板内文案在 `src/client.ts` 的 `en`/`zh` 字典。 |
 | `cordis.patch.yml` | bundle patch：插入 row `upkeep`（`@sleep9ull/dsh-upkeep`）及其 config。 |

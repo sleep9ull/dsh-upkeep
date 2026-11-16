@@ -573,6 +573,16 @@ idle
 - Client：验证成功后通知出现「创建 PR」；创建成功后显示 URL，并在 `allowMerge` 时出现「合并」；两步都带二次确认。
 - 测试：delivery 单测 5 条 + Hub 交付链路（confirm 门、commit/push/PR、merge、MERGE_DISABLED）2 条；总计 60 个单测通过。
 - 边界：forge 默认未挂载，PR 创建固定走宿主 `gh`；worktree 清理已实现但未接 UI；真机需重启 Host、`gh` 已登录、base 分支本地存在（否则 preview 给 warning）。
+### M5 已完成（2026-11-16）
+
+- `src/host/schedule.ts`：结构化读取 `ctx.schedule`，把周期检查映射成 `{title, prompt, timing:{kind:'every', every_seconds}, target:{kind:'new_once', create:{cwd}}}`；间隔钳制在 60 秒 ~ 30 天；`listUpkeepTasks` 只保留标题以 `Upkeep` 开头的任务。
+- 两个 action：`schedule.create`（write，confirm；`SCHEDULE_UNAVAILABLE` 明确降级）、`schedule.list`（read）。
+- 配置：`scheduleCwd`（新建会话的项目目录，空则 `$DSH_HOME`）、`scheduleIntervalHours`（默认 24，1–720）。
+- 投递 prompt 只做检查与汇报，明确要求本轮不修改任何文件；升级仍由面板上的人工按钮触发。
+- Client：面板操作区新增「定时检查」，二次确认后创建并提示任务标题；任务本身在 DSH 的 Automation tasks 页面管理。
+- 测试：schedule 单测 5 条 + Hub（confirm 门、请求形状、列表过滤、SCHEDULE_UNAVAILABLE 降级）2 条；总计 67 个单测通过。
+- 边界：未做暂停/删除（交给 DSH 自带任务页）；投递需要 Host 在运行；目标会话被归档会随 DSH 语义删除任务。
+
 
 
 

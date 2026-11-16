@@ -47,6 +47,7 @@ import { fetchRemoteGuides, readInstalledGuides, type GuideSet } from './guides.
 import { summarizeMatches, matchGuides, type ImpactSummary, type GuideMatch } from './match.js'
 import { scanSurfaces, type SurfaceInventory } from './surfaces.js'
 import { createExecRunner, type ExecRunner } from './exec.js'
+import { createUpkeepTask, listUpkeepTasks, scheduleService } from './schedule.js'
 import {
   buildDeliveryText,
   commitWorkspace,
@@ -113,6 +114,10 @@ export interface HubConfig {
   defaultBaseBranch: string
   /** Whether `delivery.merge` is allowed at all; each merge still needs its own confirmation. */
   allowMerge: boolean
+  /** Project directory for the Session a scheduled check creates; empty uses the profile home. */
+  scheduleCwd: string
+  /** Default interval for a created scheduled check. */
+  scheduleIntervalHours: number
   /** How many entries a check may inspect concurrently. */
   concurrency: number
   /** Directory under which upgrade worktrees are created; empty means the repository's sibling directory. */
@@ -169,6 +174,8 @@ export function normalizeConfig(raw: unknown): HubConfig {
     runsToKeep: normalizeInteger(config.runsToKeep, 10, 1, 20),
     defaultBaseBranch: typeof config.defaultBaseBranch === 'string' && config.defaultBaseBranch.trim() !== '' ? config.defaultBaseBranch.trim() : 'main',
     allowMerge: config.allowMerge === true,
+    scheduleCwd: typeof config.scheduleCwd === 'string' ? config.scheduleCwd.trim() : '',
+    scheduleIntervalHours: normalizeInteger(config.scheduleIntervalHours, 24, 1, 720),
     concurrency: normalizeInteger(config.concurrency, 2, 1, 8),
     worktreeRoot: typeof config.worktreeRoot === 'string' ? config.worktreeRoot : '',
     ownerHandles: normalizeConfigList(config.ownerHandles),
@@ -975,6 +982,30 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
         })
         writeState(home, next)
         return { run: next.runs.find(entry => entry.id === runId) ?? run, mergedAt: now() }
+      },
+    },
+    'schedule.create': {
+      kind: 'write',
+      description: 'Create the recurring compatibility check through the shared schedule service (needs confirm).',
+      run: async (input) => {
+        if (input.confirm !== true) throw new HubError('CONFIRM_REQUIRED', 'Scheduling a check needs confirm: true.')
+        const service = scheduleService(ctx)
+        if (service === undefined) throw new HubError('SCHEDULE_UNAVAILABLE', 'The schedule service is not mounted in this profile.')
+        const intervalHours = typeof input.intervalHours === 'number' && Number.isFinite(input.intervalHours)
+          ? Math.min(Math.max(input.intervalHours, 1), 720)
+          : config.scheduleIntervalHours
+        const cwd = config.scheduleCwd === '' ? home : config.scheduleCwd
+        const task = await createUpkeepTask(service, { intervalHours, cwd })
+        return { task, intervalHours, cwd }
+      },
+    },
+    'schedule.list': {
+      kind: 'read',
+      description: 'Recurring compatibility checks this plugin created.',
+      run: async () => {
+        const service = scheduleService(ctx)
+        if (service === undefined) return { tasks: [], available: false }
+        return { tasks: await listUpkeepTasks(service), available: true }
       },
     },
     'bundles.list': {

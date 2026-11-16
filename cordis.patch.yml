@@ -25,3 +25,6 @@
         defaultBaseBranch: main
         # Merging stays off until both this flag and each merge confirmation agree.
         allowMerge: false
+        # Project directory for the Session a scheduled check creates; empty uses $DSH_HOME.
+        scheduleCwd: ""
+        scheduleIntervalHours: 24

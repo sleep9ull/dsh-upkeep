@@ -1,0 +1,105 @@
+/**
+ * Scheduled upkeep: create the recurring compatibility check through DSH's
+ * shared schedule service (`ctx.schedule`), and list the tasks this plugin owns.
+ *
+ * Delivery is a prompt handed to a fresh Session, so the task does what the
+ * user sees in the panel: run a check and report. It never edits repositories —
+ * the upgrade flow stays behind the human-confirmed buttons.
+ */
+
+import { isRecord } from './types.js'
+
+/** The structural slice of `ctx.schedule` this plugin calls. */
+export interface ScheduleServiceLike {
+  create(request: Record<string, unknown>): Promise<unknown>
+  catalog(): Promise<unknown[]>
+  list?(request?: Record<string, unknown>): Promise<unknown>
+}
+
+/** How this plugin names its tasks, so they can be recognized later. */
+export const TASK_TITLE = 'Upkeep compatibility check'
+
+/** Read `ctx.schedule` structurally; `undefined` when the schedule service is not mounted. */
+export function scheduleService(ctx: { get(name: string): unknown }): ScheduleServiceLike | undefined {
+  const value = ctx.get('schedule')
+  if (!isRecord(value) || typeof value.create !== 'function') return undefined
+  const create = value.create
+  const catalog = typeof value.catalog === 'function' ? value.catalog : undefined
+  const list = typeof value.list === 'function' ? value.list : undefined
+  if (catalog === undefined && list === undefined) return undefined
+  return {
+    create: async (request) => await (create as (request: unknown) => Promise<unknown>).call(value, request),
+    catalog: async () => {
+      if (catalog !== undefined) {
+        const entries: unknown = await (catalog as () => Promise<unknown>).call(value)
+        return Array.isArray(entries) ? entries : []
+      }
+      const listed: unknown = await (list as (request?: unknown) => Promise<unknown>).call(value, {})
+      if (Array.isArray(listed)) return listed
+      return isRecord(listed) && Array.isArray(listed.items) ? listed.items : []
+    },
+  }
+}
+
+/** The prompt the scheduled session receives. */
+export function buildSchedulePrompt(): string {
+  return [
+    'Run a DeepSeek Harness plugin compatibility check with dsh-upkeep.',
+    '',
+    '1. Call the `upkeep_status` tool with `action: "check"` so the target DSH version and every verdict are fresh.',
+    '2. Report, briefly: the running and target DSH versions; which of MY plugins need care and why; for each, the matched migration-guide items if any.',
+    '3. Do not modify any file or repository in this run. If something needs care, say what to do next: open the Upkeep panel and press Upgrade (optionally in a worktree), then Verify and Create PR.',
+  ].join('\n')
+}
+
+/** Clamp the interval to the schedule service's supported range. */
+export function clampIntervalSeconds(hours: number): number {
+  const seconds = Math.round(hours * 3_600)
+  return Math.min(Math.max(seconds, 60), 30 * 24 * 3_600)
+}
+
+/**
+ * Create the recurring check.
+ * @param service - the structural schedule service.
+ * @param options.intervalHours - how often to deliver; clamped.
+ * @param options.cwd - the created Session's project directory.
+ * @returns the created catalog entry, with its id and title when present.
+ */
+export async function createUpkeepTask(
+  service: ScheduleServiceLike,
+  options: { intervalHours: number; cwd: string },
+): Promise<{ id: string | null; title: string; timing: Record<string, unknown> }> {
+  const timing = { kind: 'every', every_seconds: clampIntervalSeconds(options.intervalHours) }
+  const created = await service.create({
+    title: TASK_TITLE,
+    prompt: buildSchedulePrompt(),
+    timing,
+    target: { kind: 'new_once', create: options.cwd.trim() === '' ? {} : { cwd: options.cwd } },
+  })
+  const id = isRecord(created) && typeof created.id === 'string' ? created.id : null
+  const title = isRecord(created) && typeof created.title === 'string' ? created.title : TASK_TITLE
+  return { id, title, timing }
+}
+
+/** List the tasks this plugin created, newest fields preserved as-is. */
+export async function listUpkeepTasks(service: ScheduleServiceLike): Promise<Array<{
+  id: string | null
+  title: string
+  status: string | null
+  prompt: string | null
+}>> {
+  const entries = await service.catalog()
+  const tasks: Array<{ id: string | null; title: string; status: string | null; prompt: string | null }> = []
+  for (const entry of entries) {
+    if (!isRecord(entry)) continue
+    const title = typeof entry.title === 'string' ? entry.title : ''
+    if (!title.startsWith('Upkeep')) continue
+    tasks.push({
+      id: typeof entry.id === 'string' ? entry.id : null,
+      title,
+      status: typeof entry.status === 'string' ? entry.status : null,
+      prompt: typeof entry.prompt === 'string' ? entry.prompt : null,
+    })
+  }
+  return tasks
+}

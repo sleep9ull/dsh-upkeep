@@ -141,6 +141,8 @@ type Store = {
   createPr(runId: string): Promise<void>
   /** Merge the run's pull request (only when the Host allows merging). */
   merge(runId: string): Promise<void>
+  /** Create the recurring compatibility check through the schedule service. */
+  createSchedule(): Promise<void>
 }
 
 /* ---- the Cordis services the plugin is applied to ---------------- */
@@ -294,6 +296,9 @@ interface Window {
         confirmMerge: 'Merge this pull request now?',
         prCreated: 'Pull request created:',
         mergeDone: 'Pull request merged.',
+        scheduleCheck: 'Schedule check',
+        confirmSchedule: 'Create a recurring compatibility check?',
+        scheduleCreated: 'Scheduled: {title}. Manage it on the Automation tasks page.',
       }
 
       const zh: Record<string, string> = {
@@ -366,6 +371,9 @@ interface Window {
         confirmMerge: '现在合并这个 PR？',
         prCreated: 'PR 已创建：',
         mergeDone: 'PR 已合并。',
+        scheduleCheck: '定时检查',
+        confirmSchedule: '创建一个周期性兼容性检查任务？',
+        scheduleCreated: '已创建：{title}。可在 Automation tasks 页面管理。',
       }
 
       const CSS = `
@@ -551,6 +559,22 @@ interface Window {
           }
         }
 
+        const createSchedule = async (): Promise<void> => {
+          publish({ phase: 'checking', data: state.data, error: null, notice: state.notice })
+          try {
+            const answer = await callHost(ctx, 'schedule.create', { confirm: true })
+            if (!answer.ok) {
+              publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'error', text: answer.error.code + ': ' + answer.error.message } })
+              return
+            }
+            const value = answer.value as { task?: { title?: string } } | null
+            const title = value && value.task && typeof value.task.title === 'string' ? value.task.title : ''
+            publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'ok', text: t('scheduleCreated', { title }) } })
+          } finally {
+            running = false
+          }
+        }
+
         const verify = async (runId: string): Promise<void> => {
           publish({ phase: 'checking', data: state.data, error: null, notice: state.notice })
           try {
@@ -589,6 +613,7 @@ interface Window {
           verify,
           createPr,
           merge,
+          createSchedule,
         }
       }
 
@@ -884,7 +909,15 @@ interface Window {
             disabled: busy,
             'aria-busy': loading ? 'true' : 'false',
             onClick: () => { void store.refresh() },
-          }, loading ? t('loading') : t('refresh')))
+          }, loading ? t('loading') : t('refresh')),
+          h('button', {
+            className: 'upkeep-btn',
+            type: 'button',
+            disabled: busy,
+            onClick: () => {
+              if (typeof window.confirm !== 'function' || window.confirm(t('confirmSchedule'))) void store.createSchedule()
+            },
+          }, t('scheduleCheck')))
 
         return h('div', {
           'data-upkeep': '',

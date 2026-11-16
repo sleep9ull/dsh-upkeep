@@ -12,7 +12,7 @@ const TEST_HOME = mkdtempSync(join(tmpdir(), 'upkeep-hub-'))
 const TEST_DEPS = { home: TEST_HOME, startupCheck: false as const }
 
 /** A fake Host context exposing only the services a status read touches. */
-function fakeContext(overrides: { bundles?: unknown[]; plugins?: unknown[]; installAnchor?: string; profileDir?: string; home?: string; failBundles?: boolean; workspaceRegistry?: unknown } = {}): HostContext {
+function fakeContext(overrides: { bundles?: unknown[]; plugins?: unknown[]; installAnchor?: string; profileDir?: string; home?: string; failBundles?: boolean; workspaceRegistry?: unknown; schedule?: unknown } = {}): HostContext {
   return {
     get(name: string) {
       if (name === 'profileContext') {
@@ -24,6 +24,7 @@ function fakeContext(overrides: { bundles?: unknown[]; plugins?: unknown[]; inst
         }
       }
       if (name === 'workspaceRegistry') return overrides.workspaceRegistry
+    if (name === 'schedule') return overrides.schedule
       if (name === 'pluginManager') {
         return {
           listBundles: async () => {
@@ -394,4 +395,46 @@ test('merging is refused when the configuration does not allow it', async () => 
     () => hub.call('delivery.merge', { runId: 'run-x', confirm: true }, { caller: 'client' }),
     (error: unknown) => (error as { code?: string }).code === 'MERGE_DISABLED',
   )
+})
+
+test('schedule.create asks for confirmation and creates the recurring check', async () => {
+  const requests: unknown[] = []
+  const schedule = {
+    create: async (request: unknown) => { requests.push(request); return { id: 'task-1', title: 'Upkeep compatibility check' } },
+    catalog: async () => [
+      { id: 'task-1', title: 'Upkeep compatibility check', status: 'active', prompt: 'p' },
+      { id: 'task-2', title: 'other', status: 'active', prompt: 'q' },
+    ],
+    list: async () => ({ items: [] }),
+  }
+  const hub = createHub(fakeContext({ schedule }), normalizeConfig({ scheduleIntervalHours: 12 }), TEST_DEPS)
+
+  await assert.rejects(
+    () => hub.call('schedule.create', { confirm: false }, { caller: 'client' }),
+    (error: unknown) => (error as { code?: string }).code === 'CONFIRM_REQUIRED',
+  )
+  const created = await hub.call('schedule.create', { confirm: true }, { caller: 'client' }) as {
+    task: { id: string | null; title: string }
+    intervalHours: number
+  }
+  assert.equal(created.task.id, 'task-1')
+  assert.equal(created.intervalHours, 12)
+  const request = requests[0] as { timing: { every_seconds: number }; target: { kind: string; create: { cwd?: string } } }
+  assert.equal(request.timing.every_seconds, 12 * 3_600)
+  assert.equal(request.target.kind, 'new_once')
+  assert.equal(request.target.create.cwd, TEST_HOME)
+
+  const listed = await hub.call('schedule.list', {}, { caller: 'client' }) as { tasks: Array<{ id: string }>; available: boolean }
+  assert.equal(listed.available, true)
+  assert.deepEqual(listed.tasks.map(task => task.id), ['task-1'])
+})
+
+test('without the schedule service the actions degrade explicitly', async () => {
+  const hub = createHub(fakeContext(), normalizeConfig(undefined), TEST_DEPS)
+  await assert.rejects(
+    () => hub.call('schedule.create', { confirm: true }, { caller: 'client' }),
+    (error: unknown) => (error as { code?: string }).code === 'SCHEDULE_UNAVAILABLE',
+  )
+  const listed = await hub.call('schedule.list', {}, { caller: 'client' }) as { tasks: unknown[]; available: boolean }
+  assert.deepEqual(listed, { tasks: [], available: false })
 })
