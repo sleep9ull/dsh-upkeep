@@ -125,7 +125,7 @@ type StatusSnapshot = {
 }
 
 type StorePhase = 'idle' | 'loading' | 'checking' | 'upgrading' | 'ready' | 'error'
-type UpgradeNotice = { kind: 'ok' | 'error'; text: string; runId?: string; prUrl?: string }
+type UpgradeNotice = { kind: 'ok' | 'error'; text: string; runId?: string; prUrl?: string; warnings?: string[] }
 type StoreState = { phase: StorePhase; data: StatusSnapshot | null; error: RpcFailure | null; notice?: UpgradeNotice }
 type Store = {
   subscribe(listener: () => void): () => void
@@ -208,6 +208,20 @@ interface Window {
       const PANEL_ID = TAB_ID
       /** Remembered choice for the "other plugins" group; hidden until the reader opens it. */
       const OTHERS_OPEN_KEY = 'dsh.upkeep.othersExpanded'
+      const NOTICE_WARNING_LIMIT = 6
+
+      /** Keep only real, bounded warning strings from a Host answer. */
+      function noticeWarnings(value: unknown): string[] {
+        if (!Array.isArray(value)) return []
+        const warnings: string[] = []
+        for (const entry of value) {
+          if (typeof entry !== 'string') continue
+          const text = entry.trim()
+          if (text !== '') warnings.push(text)
+          if (warnings.length >= NOTICE_WARNING_LIMIT) break
+        }
+        return warnings
+      }
 
       /** The group starts collapsed: other authors' plugins are noise until asked for. */
       function readOthersOpen(): boolean {
@@ -440,7 +454,13 @@ interface Window {
 [data-upkeep] .upkeep-muted { color: var(--dsw-alias-label-secondary); font-size: 11px; }
 [data-upkeep] .upkeep-care { display: flex; align-items: center; gap: 8px; }
 [data-upkeep] .upkeep-btn-xs { padding: 1px 8px; font-size: 10px; line-height: 1.5; }
-[data-upkeep] .upkeep-notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0 6px 12px; border-left: 2px solid var(--dsw-alias-brand-primary); font-size: 11px; line-height: 1.55; }
+[data-upkeep] .upkeep-notice { display: flex; flex-direction: column; gap: 5px; padding: 6px 0 6px 12px; border-left: 2px solid var(--dsw-alias-brand-primary); font-size: 11px; line-height: 1.55; }
+[data-upkeep] .upkeep-notice-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+[data-upkeep] .upkeep-notice-text { min-width: 0; overflow-wrap: anywhere; }
+[data-upkeep] .upkeep-notice-warnings { display: flex; flex-direction: column; gap: 2px; color: var(--dsw-alias-label-secondary); font-size: 10.5px; line-height: 1.5; }
+[data-upkeep] .upkeep-notice-warnings-title { font-weight: 600; }
+[data-upkeep] .upkeep-notice-warnings ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+[data-upkeep] .upkeep-notice-warnings li::before { content: '· '; opacity: 0.7; }
 [data-upkeep] .upkeep-notice[data-kind="error"] { border-left-color: var(--dsw-alias-state-error-primary); }
 [data-upkeep] .upkeep-notice-actions { display: flex; flex: none; gap: 6px; }
 [data-upkeep] .upkeep-footer { display: flex; flex-direction: column; gap: 3px; padding-top: 12px; border-top: 1px solid var(--dsw-alias-border-l1); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.55; }
@@ -518,7 +538,9 @@ interface Window {
             }
             const value = answer.value as {
               run?: { id?: string; workspaceId?: string; prompt?: string }
+              warnings?: unknown
             } | null
+            const warnings = noticeWarnings(value === null ? undefined : value.warnings)
             const run = value && value.run ? value.run : null
             if (!run || typeof run.workspaceId !== 'string' || typeof run.prompt !== 'string') {
               publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'error', text: t('upgradeFailed') } })
@@ -529,7 +551,12 @@ interface Window {
             } catch {
               // The shell may be mid-reload; the run is stored either way.
             }
-            publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'ok', text: t('preparedNotice', { bundle }), runId: run.id } })
+            publish({
+              phase: 'ready',
+              data: state.data,
+              error: null,
+              notice: { kind: 'ok', text: t('preparedNotice', { bundle }), runId: run.id, ...(warnings.length === 0 ? {} : { warnings }) },
+            })
           } finally {
             running = false
           }
@@ -543,9 +570,21 @@ interface Window {
               publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'error', text: answer.error.code + ': ' + answer.error.message, runId } })
               return
             }
-            const value = answer.value as { prUrl?: string; branch?: string } | null
+            const value = answer.value as { prUrl?: string; branch?: string; warnings?: unknown } | null
             const url = value && typeof value.prUrl === 'string' ? value.prUrl : ''
-            publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'ok', text: url === '' ? t('prCreated') : t('prCreated') + ' ' + url, runId, ...(url === '' ? {} : { prUrl: url }) } })
+            const warnings = noticeWarnings(value === null ? undefined : value.warnings)
+            publish({
+              phase: 'ready',
+              data: state.data,
+              error: null,
+              notice: {
+                kind: 'ok',
+                text: url === '' ? t('prCreated') : t('prCreated') + ' ' + url,
+                runId,
+                ...(url === '' ? {} : { prUrl: url }),
+                ...(warnings.length === 0 ? {} : { warnings }),
+              },
+            })
           } finally {
             running = false
           }
@@ -950,7 +989,8 @@ interface Window {
             warning,
             state.notice
               ? h('div', { className: 'upkeep-notice', 'data-kind': state.notice.kind, role: 'status' },
-                  h('span', null, state.notice.text),
+                  h('div', { className: 'upkeep-notice-line' },
+                  h('span', { className: 'upkeep-notice-text' }, state.notice.text),
                   state.notice.runId
                     ? h('span', { className: 'upkeep-notice-actions' },
                         h('button', { className: 'upkeep-btn', type: 'button', onClick: () => { if (state.notice?.runId) void store.verify(state.notice.runId) } }, t('verifyNow')),
@@ -971,6 +1011,11 @@ interface Window {
                                 },
                               }, t('merge'))
                             : null)
+                    : null),
+                  state.notice.warnings !== undefined && state.notice.warnings.length > 0
+                    ? h('div', { className: 'upkeep-notice-warnings' },
+                        h('span', { className: 'upkeep-notice-warnings-title' }, t('warnings')),
+                        h('ul', null, state.notice.warnings.map((text: string, index: number) => h('li', { key: index }, text))))
                     : null)
               : null,
             groups,

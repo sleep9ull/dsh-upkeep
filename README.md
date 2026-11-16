@@ -76,7 +76,7 @@ The panel shows the count on the row tooltip; `report.get` returns the matched i
 
 ## Upgrades and delivery
 
-**Upgrade** prepares the workspace (the checkout itself, or a `git worktree` if you ask for isolation), registers it, and opens a session with a prompt that names the exact changes, the files and the verification commands. The agent edits; you stay in control.
+**Upgrade** prepares the workspace (the checkout itself, or a `git worktree` if you ask for isolation), registers it, and opens a session with a prompt that names the exact changes, the files and the verification commands. The agent edits; you stay in control. The preparation notice reports the Host's warnings as well — an uncommitted checkout, a worktree started from HEAD, or a guide fetch that had to fall back.
 
 **Verify** runs the configured commands (default: the package's `check` and `test` scripts, falling back to `build`) in that workspace and records each exit code. **Create PR** commits, pushes and opens the pull request with `gh`; **Merge** only appears when `allowMerge` is enabled, and still asks each time. Failed steps record their error on the run — no silent success.
 

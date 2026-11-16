@@ -323,6 +323,10 @@ test('upgrade.prepare gated by confirm, registers a workspace, and verify record
   assert.match(prepared.run.workspacePath, /-upkeep/)
   assert.match(prepared.run.prompt, /@sleep9ull\/plugin/)
   assert.match(prepared.run.prompt, /npm test/)
+  // The panel renders these; they must exist even when everything succeeded.
+  const prepareWarnings = (prepared as unknown as { warnings: string[] }).warnings
+  assert.ok(Array.isArray(prepareWarnings))
+  assert.ok(prepareWarnings.some(warning => /uncommitted changes were not copied/.test(warning)))
   assert.equal(readState(home).runs.length, 1)
 
   const verified = await hub.call('upgrade.verify', { runId: prepared.run.id, confirm: true }, { caller: 'client' }) as {

@@ -84,6 +84,10 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   assert.match(client, /upgrade.verify/)
   assert.match(client, /upkeep-notice/)
   assert.match(client, /verifyNow/)
+  // M3/M4 notices carry the Host's warnings next to the outcome.
+  assert.match(client, /noticeWarnings/)
+  assert.match(client, /upkeep-notice-warnings/)
+  assert.match(client, /NOTICE_WARNING_LIMIT/)
 })
 
 test('both READMEs exist, link to each other, and ship with their license', () => {
