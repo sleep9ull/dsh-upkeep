@@ -8,7 +8,7 @@
 
 | 何时读 | 文档 |
 |---|---|
-| 要改**范围、优先级、验收标准**，或怀疑某个设计决定 | [docs/PLAN.md](docs/PLAN.md) —— 范围与设计决策（D1–D14）的唯一来源；改范围先改这里 |
+| 要改**范围、优先级、验收标准**，或怀疑某个设计决定 | [docs/PLAN.md](docs/PLAN.md) —— 范围与设计决策（D1–D15）的唯一来源；改范围先改这里 |
 | 要断言**任何 DSH 行为**（服务、事件、字段、版本语义、CLI 参数） | [docs/EVIDENCE.md](docs/EVIDENCE.md) —— 已核实事实；新结论先补证据再写代码 |
 | 要改 **Host↔Client 线协议**（路由、信封、错误码） | [src/host/rpc.ts](src/host/rpc.ts) 头部注释 —— 线协议当前权威；若它长大到需要独立文件，拆成 `docs/CONTRACT.md` 并在两处同步 |
 | 要新增/修改 **Host 插件面**（manifest、patch、locale、icon、导出） | `dsh-doc` 技能的 `references/host-plugin.md`、`references/ui-plugin.md`、`references/plugin-development.md` |

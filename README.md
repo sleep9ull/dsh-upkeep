@@ -73,10 +73,11 @@ Pull the checkout, run `npm install && npm run build`, and reload. A future rele
 
 The panel answers one question first: **what is this installation actually running, and which plugins did it load?**
 
-- The header shows the page title and gives you one button, **Refresh**.
-- The summary block shows the running DSH version, the profile name, the number of live plugin entries, and how many bundles are installed.
+- One sentence at the top answers the maintenance question — "All 2 of your plugins are healthy" or "1 of your 2 plugins needs care" — and turns to the error color when something needs attention.
+- A single meta line carries the running DSH version, the profile, the bundle and plugin-entry counts, the Upkeep version and when the snapshot was read.
+- The list is a ledger, not a set of cards: hairline rows, monospace versions, and a 2px rail on rows that need care.
 - The bundle list is split into two visual groups: **My plugins** first (matched against your local identity), then **Other plugins** (other authors or unknown ownership), which is **collapsed by default** — expand it from its heading when you want it, and the choice is remembered.
-- The bundle table lists each bundle with its version, state (`enabled`, `disabled`, `load error`), **owner** (`Mine` / `Other author` / `Unknown`) and **care** (`Needs care` / `Healthy` / `Unknown`). Hovering a verdict shows the evidence behind it.
+- The two groups trim their columns to what matters: **My plugins** shows Bundle / Version / State / Care / Rows; **Other plugins** shows Owner instead of Care. Hovering a verdict shows the evidence behind it.
 - Ownership is inferred, never assumed: the package scope, `author`, `repository`, and the git remote of a local checkout are matched against your identity — `ownerHandles` / `ownerEmails` in the plugin configuration, plus the `~/.gitconfig` name/email and the signed-in `gh` account. A plugin with no recognizable signal stays **Unknown**. The identity is whatever machine you run it on: another developer's installation resolves theirs, so the same plugin serves every author.
 - The care verdict is computed only for **Mine**: a declared incompatibility with the running DSH, or a plugin row that failed to load, marks the plugin **Needs care**; otherwise it is **Healthy** (with declared-range evaluation arriving in M1).
 - Official `@deepseek-ai/*` packages are part of DSH and never appear in the monitored list; the summary reports how many bundles and plugin entries were excluded, so nothing looks missing.

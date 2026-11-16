@@ -71,6 +71,11 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   // Other authors' plugins stay folded until asked for, and the choice persists.
   assert.match(client, /upkeep-group-toggle/)
   assert.match(client, /dsh\.upkeep\.othersExpanded/)
+  // The panel is a ledger: one status sentence, a meta line, grouped tables, a footer.
+  assert.match(client, /upkeep-status/)
+  assert.match(client, /upkeep-meta/)
+  assert.match(client, /upkeep-footer/)
+  assert.match(client, /upkeep-table-scroll/)
 })
 
 test('both READMEs exist, link to each other, and ship with their license', () => {

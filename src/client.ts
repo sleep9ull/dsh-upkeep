@@ -176,11 +176,16 @@ interface Window {
         tab: 'Upkeep',
         panel: 'Upkeep',
         openPanel: 'Open panel',
-        panelSubtitle: 'What this installation runs, and which plugins it loaded.',
         title: 'Plugin compatibility',
         subtitle: 'What this installation runs, and which plugins it loaded.',
         refresh: 'Refresh',
         loading: 'Reading status…',
+        statusHealthyOne: 'Your plugin is healthy.',
+        statusHealthy: 'All {mine} of your plugins are healthy.',
+        statusCareOne: 'Your plugin needs care.',
+        statusCareSingle: 'One of your {mine} plugins needs care.',
+        statusCareMany: '{care} of your {mine} plugins need care.',
+        statusNoMine: 'No plugin here is recognized as yours yet.',
         pluginVersion: 'Upkeep',
         dshVersion: 'DSH',
         profile: 'Profile',
@@ -190,7 +195,6 @@ interface Window {
         bundle: 'Bundle',
         version: 'Version',
         state: 'State',
-        source: 'Source',
         rows: 'Rows',
         enabled: 'enabled',
         disabled: 'disabled',
@@ -206,17 +210,14 @@ interface Window {
         healthy: 'Healthy',
         unknownCare: 'Unknown',
         notMine: 'Not mine',
-        myPlugins: 'My plugins',
-        otherAuthors: 'Other authors',
-        groupMine: 'My plugins',
+        groupMine: 'Your plugins',
         groupMineHint: 'Matched against this machine identity',
         groupOthers: 'Other plugins',
         groupOthersHint: 'Other authors or unknown ownership',
-        noMine: 'No plugin is recognized as yours. Set ownerHandles if that is wrong.',
+        noMine: 'No plugin here is recognized as yours yet. Set ownerHandles if that is wrong.',
         noOthers: 'No other plugins.',
         collapseOthers: 'Collapse other plugins',
         expandOthers: 'Expand other plugins',
-        empty: 'No bundles were reported.',
         warnings: 'Warnings',
         notConnected: 'The panel is not connected to the Host yet.',
         retry: 'Retry',
@@ -226,11 +227,16 @@ interface Window {
         tab: '兼容性管家',
         panel: '兼容性管家',
         openPanel: '打开面板',
-        panelSubtitle: '当前安装运行的版本，以及它加载了哪些插件。',
         title: '插件兼容性',
         subtitle: '当前安装运行的版本，以及它加载了哪些插件。',
         refresh: '刷新',
         loading: '正在读取状态…',
+        statusHealthyOne: '你的插件正常。',
+        statusHealthy: '你的 {mine} 个插件全部正常。',
+        statusCareOne: '你的插件需要维护。',
+        statusCareSingle: '你的 {mine} 个插件中有 1 个需要维护。',
+        statusCareMany: '你的 {mine} 个插件中有 {care} 个需要维护。',
+        statusNoMine: '还没有识别到属于你的插件。',
         pluginVersion: 'Upkeep',
         dshVersion: 'DSH',
         profile: 'Profile',
@@ -240,7 +246,6 @@ interface Window {
         bundle: 'Bundle',
         version: '版本',
         state: '状态',
-        source: '来源',
         rows: '行数',
         enabled: '已启用',
         disabled: '已禁用',
@@ -256,67 +261,86 @@ interface Window {
         healthy: '正常',
         unknownCare: '未知',
         notMine: '—',
-        myPlugins: '我的插件',
-        otherAuthors: '他人插件',
         groupMine: '我的插件',
         groupMineHint: '按本机身份识别',
         groupOthers: '其他插件',
         groupOthersHint: '他人或归属未知',
-        noMine: '没有识别到属于你的插件。若判断有误，请设置 ownerHandles。',
+        noMine: '还没有识别到属于你的插件。若判断有误，请设置 ownerHandles。',
         noOthers: '没有其他插件。',
         collapseOthers: '收起其他插件',
         expandOthers: '展开其他插件',
-        empty: '没有读取到任何 bundle。',
         warnings: '提示',
         notConnected: '面板尚未连接到 Host。',
         retry: '重试',
       }
 
       const CSS = `
-[data-upkeep] { display: flex; flex-direction: column; gap: 10px; }
-[data-upkeep] .upkeep-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-[data-upkeep] .upkeep-title { margin: 0; font-size: 14px; line-height: 1.35; }
-[data-upkeep] .upkeep-subtitle { margin: 2px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.5; }
-[data-upkeep] .upkeep-actions { display: flex; gap: 8px; flex: none; }
-[data-upkeep] .upkeep-tab-inner, [data-upkeep] .upkeep-page-inner { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-[data-upkeep] .upkeep-page-inner { gap: 14px; width: 100%; max-width: 1080px; margin: 0 auto; padding: 24px 28px 40px; box-sizing: border-box; }
-[data-upkeep].upkeep-page { height: 100%; overflow: auto; }
-[data-upkeep].upkeep-page .upkeep-title { font-size: 18px; }
-[data-upkeep].upkeep-page .upkeep-subtitle { font-size: 13px; }
-[data-upkeep].upkeep-page .upkeep-grid { grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; }
-[data-upkeep].upkeep-page .upkeep-table { font-size: 13px; }
-[data-upkeep] .upkeep-btn[data-variant="primary"] { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); }
-[data-upkeep] .upkeep-btn { padding: 4px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md, 6px); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-size: 12px; line-height: 1.5; cursor: pointer; }
+[data-upkeep] { display: flex; flex-direction: column; min-width: 0; color: var(--dsw-alias-label-primary); font-size: 12px; }
+[data-upkeep].upkeep-page { height: 100%; overflow: auto; box-sizing: border-box; }
+[data-upkeep] .upkeep-page-inner { display: flex; flex-direction: column; gap: 20px; width: 100%; max-width: 1080px; margin: 0 auto; padding: 28px 28px 44px; box-sizing: border-box; }
+[data-upkeep] .upkeep-tab-inner { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+[data-upkeep] .upkeep-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+[data-upkeep] .upkeep-heading { min-width: 0; }
+[data-upkeep] .upkeep-title { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.35; letter-spacing: -0.01em; }
+[data-upkeep].upkeep-page .upkeep-title { font-size: 20px; }
+[data-upkeep] .upkeep-subtitle { margin: 3px 0 0; max-width: 64ch; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.55; }
+[data-upkeep] .upkeep-actions { display: flex; flex: none; gap: 8px; }
+
+[data-upkeep] .upkeep-status { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.45; letter-spacing: -0.01em; }
+[data-upkeep].upkeep-page .upkeep-status { font-size: 19px; }
+[data-upkeep] .upkeep-status[data-care="true"] { color: var(--dsw-alias-state-error-primary); }
+
+[data-upkeep] .upkeep-meta { display: flex; flex-wrap: wrap; align-items: baseline; font-size: 11px; color: var(--dsw-alias-label-secondary); }
+[data-upkeep] .upkeep-meta > span { padding: 0 10px; border-left: 1px solid var(--dsw-alias-border-l1); line-height: 1.6; }
+[data-upkeep] .upkeep-meta > span:first-child { padding-left: 0; border-left: none; }
+[data-upkeep] .upkeep-meta b { font-weight: 600; color: var(--dsw-alias-label-primary); font-variant-numeric: tabular-nums; }
+
+[data-upkeep] .upkeep-btn { padding: 4px 11px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md, 6px); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-size: 12px; line-height: 1.5; cursor: pointer; }
 [data-upkeep] .upkeep-btn:hover:not([disabled]) { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); }
 [data-upkeep] .upkeep-btn[disabled] { opacity: 0.55; cursor: default; }
-[data-upkeep] .upkeep-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 12px; }
-[data-upkeep] .upkeep-grid dt { color: var(--dsw-alias-label-secondary); }
-[data-upkeep] .upkeep-grid dd { margin: 0; overflow-wrap: anywhere; }
-[data-upkeep] .upkeep-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
-[data-upkeep] .upkeep-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-[data-upkeep] .upkeep-table th, [data-upkeep] .upkeep-table td { padding: 4px 6px; text-align: left; border-top: 1px solid var(--dsw-alias-border-l1); overflow-wrap: anywhere; }
-[data-upkeep] .upkeep-table th { color: var(--dsw-alias-label-secondary); font-weight: 600; border-top: none; }
-[data-upkeep] .upkeep-table td.upkeep-num { text-align: right; }
-[data-upkeep] .upkeep-chip { display: inline-flex; align-items: center; padding: 1px 6px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; color: var(--dsw-alias-label-secondary); font-size: 10px; }
-[data-upkeep] .upkeep-chip[data-state="ok"] { border-color: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-state-success-primary); }
-[data-upkeep] .upkeep-chip[data-state="warn"] { border-color: var(--dsw-alias-state-warn-primary); color: var(--dsw-alias-state-warn-primary); }
-[data-upkeep] .upkeep-chip[data-state="error"] { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
-[data-upkeep] .upkeep-warn { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border: 1px solid var(--dsw-alias-state-warn-primary); border-radius: var(--dsw-radius-md, 6px); font-size: 11px; line-height: 1.5; }
-[data-upkeep] .upkeep-error { padding: 8px 10px; border: 1px solid var(--dsw-alias-state-error-primary); border-radius: var(--dsw-radius-md, 6px); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
-[data-upkeep] .upkeep-empty { color: var(--dsw-alias-label-secondary); font-size: 12px; }
-[data-upkeep] .upkeep-note { color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.5; }
-[data-upkeep] .upkeep-muted { color: var(--dsw-alias-label-secondary); font-size: 11px; }
-[data-upkeep] .upkeep-groups { display: flex; flex-direction: column; gap: 18px; }
-[data-upkeep] .upkeep-group { display: flex; flex-direction: column; gap: 6px; }
-[data-upkeep] .upkeep-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 3px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
-[data-upkeep] .upkeep-group-title { margin: 0; font-size: 12px; font-weight: 600; }
-[data-upkeep] .upkeep-group-hint { color: var(--dsw-alias-label-secondary); font-size: 11px; text-align: right; }
-[data-upkeep] .upkeep-group-toggle { width: 100%; margin: 0; padding: 0 0 3px; border: none; border-bottom: 1px solid var(--dsw-alias-border-l1); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+[data-upkeep] .upkeep-btn[data-variant="primary"] { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); }
+[data-upkeep] :is(button):focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; border-radius: 4px; }
+
+[data-upkeep] .upkeep-groups { display: flex; flex-direction: column; gap: 22px; }
+[data-upkeep] .upkeep-group { display: flex; flex-direction: column; }
+[data-upkeep] .upkeep-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 0 0 6px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+[data-upkeep] .upkeep-group-toggle { width: 100%; margin: 0; background: transparent; border: none; border-bottom: 1px solid var(--dsw-alias-border-l2); color: inherit; font: inherit; text-align: left; cursor: pointer; }
 [data-upkeep] .upkeep-group-toggle:hover .upkeep-group-title { color: var(--dsw-alias-brand-primary); }
 [data-upkeep] .upkeep-group-left { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 [data-upkeep] .upkeep-group-chevron { flex: none; width: 11px; color: var(--dsw-alias-label-secondary); font-size: 10px; }
-@media (max-width: 520px) {
+[data-upkeep] .upkeep-group-title { margin: 0; font-size: 12px; font-weight: 600; }
+[data-upkeep] .upkeep-group-hint { color: var(--dsw-alias-label-secondary); font-size: 11px; text-align: right; }
+
+[data-upkeep] .upkeep-table-scroll { overflow-x: auto; }
+[data-upkeep] .upkeep-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+[data-upkeep] .upkeep-table th { padding: 5px 10px; text-align: left; font-weight: 500; color: var(--dsw-alias-label-secondary); white-space: nowrap; }
+[data-upkeep] .upkeep-table td { padding: 7px 10px; border-top: 1px solid var(--dsw-alias-border-l1); overflow-wrap: anywhere; }
+[data-upkeep] .upkeep-table th.upkeep-num, [data-upkeep] .upkeep-table td.upkeep-num { text-align: right; }
+[data-upkeep] .upkeep-table td.upkeep-name { width: 46%; }
+[data-upkeep] .upkeep-table tr[data-care="attention"] td:first-child { box-shadow: inset 2px 0 0 var(--dsw-alias-state-error-primary); }
+[data-upkeep] .upkeep-version { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+[data-upkeep] .upkeep-rows { font-variant-numeric: tabular-nums; }
+
+[data-upkeep] .upkeep-chip { display: inline-flex; align-items: center; padding: 1px 7px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.5; white-space: nowrap; }
+[data-upkeep] .upkeep-chip[data-state="ok"] { border-color: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-state-success-primary); }
+[data-upkeep] .upkeep-chip[data-state="warn"] { border-color: var(--dsw-alias-state-warn-primary); color: var(--dsw-alias-state-warn-primary); }
+[data-upkeep] .upkeep-chip[data-state="error"] { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
+
+[data-upkeep] .upkeep-warn { display: flex; flex-direction: column; gap: 3px; padding: 6px 0 6px 12px; border-left: 2px solid var(--dsw-alias-state-warn-primary); font-size: 11px; line-height: 1.55; }
+[data-upkeep] .upkeep-error { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 6px 12px; border-left: 2px solid var(--dsw-alias-state-error-primary); font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
+
+[data-upkeep] .upkeep-empty { padding: 14px 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+[data-upkeep] .upkeep-muted { color: var(--dsw-alias-label-secondary); font-size: 11px; }
+[data-upkeep] .upkeep-footer { display: flex; flex-direction: column; gap: 3px; padding-top: 12px; border-top: 1px solid var(--dsw-alias-border-l1); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.55; }
+
+@media (max-width: 640px) {
   [data-upkeep] .upkeep-head { flex-wrap: wrap; }
+  [data-upkeep] .upkeep-page-inner { padding: 18px 16px 32px; }
+  [data-upkeep] .upkeep-group-hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-upkeep] * { transition: none !important; animation: none !important; }
 }
 `
 
@@ -437,34 +461,45 @@ interface Window {
       }
 
       /** One bundle table; both groups reuse it so the columns stay identical. */
-      function renderBundleTable(bundles: BundleSummary[], t: Translate, emptyText: string): Child {
+      /** One ledger table; both groups share it so columns cannot drift apart. */
+      function renderBundleTable(
+        bundles: BundleSummary[],
+        t: Translate,
+        emptyText: string,
+        options: { showOwner: boolean; showCare: boolean },
+      ): Child {
         if (bundles.length === 0) return h('div', { className: 'upkeep-empty' }, emptyText)
-        return h('table', { className: 'upkeep-table' },
-          h('thead', null,
-            h('tr', null,
-              h('th', null, t('bundle')),
-              h('th', null, t('version')),
-              h('th', null, t('state')),
-              h('th', null, t('owner')),
-              h('th', null, t('care')),
-              h('th', { className: 'upkeep-num' }, t('rows')))),
-          h('tbody', null,
-            ...bundles.map((bundle, index) => {
-              const status = bundleState(bundle, t)
-              return h('tr', { key: (bundle.name || 'bundle') + '-' + index },
-                h('td', null, h('span', { className: 'upkeep-mono', title: bundle.source || '' }, bundle.name || t('unknown'))),
-                h('td', { className: 'upkeep-mono' }, bundle.version || '—'),
-                h('td', null, chip(status.label, status.state)),
-                h('td', null, ownerChip(bundle, t)),
-                h('td', null, careChip(bundle, t)),
-                h('td', { className: 'upkeep-num upkeep-mono' }, typeof bundle.rowCount === 'number' ? String(bundle.rowCount) : '—'))
-            })))
+        const headers: Child[] = [
+          h('th', { key: 'bundle' }, t('bundle')),
+          h('th', { key: 'version' }, t('version')),
+          h('th', { key: 'state' }, t('state')),
+        ]
+        if (options.showOwner) headers.push(h('th', { key: 'owner' }, t('owner')))
+        if (options.showCare) headers.push(h('th', { key: 'care' }, t('care')))
+        headers.push(h('th', { key: 'rows', className: 'upkeep-num' }, t('rows')))
+
+        return h('div', { className: 'upkeep-table-scroll' },
+          h('table', { className: 'upkeep-table' },
+            h('thead', null, h('tr', null, ...headers)),
+            h('tbody', null,
+              ...bundles.map((bundle, index) => {
+                const status = bundleState(bundle, t)
+                const care = bundle.maintenance && bundle.maintenance.state ? bundle.maintenance.state : 'unknown'
+                const cells: Child[] = [
+                  h('td', { key: 'name', className: 'upkeep-name' },
+                    h('span', { title: bundle.source || '' }, bundle.name || t('unknown'))),
+                  h('td', { key: 'version' }, h('span', { className: 'upkeep-version' }, bundle.version || '—')),
+                  h('td', { key: 'state' }, chip(status.label, status.state)),
+                ]
+                if (options.showOwner) cells.push(h('td', { key: 'owner' }, ownerChip(bundle, t)))
+                if (options.showCare) cells.push(h('td', { key: 'care' }, careChip(bundle, t)))
+                cells.push(h('td', { key: 'rows', className: 'upkeep-num upkeep-rows' },
+                  typeof bundle.rowCount === 'number' ? String(bundle.rowCount) : '—'))
+                return h('tr', { key: (bundle.name || 'bundle') + '-' + index, 'data-care': care }, ...cells)
+              }))))
       }
 
-      /* ------------------------------------------------------------------ *
-       * Tab body
-       * ------------------------------------------------------------------ */
-
+      /** The props every upkeep view receives through its slot injection. */
       type TabProps = { store: Store; t: Translate; locale: string; openPanel?: () => void }
 
       function StatusView(props: TabProps & { variant: 'tab' | 'panel' }): Child {
@@ -483,32 +518,42 @@ interface Window {
         const [othersOpen, setOthersOpen] = React.useState<boolean>(readOthersOpen)
         React.useEffect(() => { writeOthersOpen(othersOpen) }, [othersOpen])
 
-        const summary: Array<[string, Child]> = [
-          [t('pluginVersion'), h('span', { className: 'upkeep-mono' }, data && data.plugin && data.plugin.version ? data.plugin.version : t('unknown'))],
-          [t('dshVersion'), h('span', { className: 'upkeep-mono' }, data && data.dsh && data.dsh.runtimeVersion ? data.dsh.runtimeVersion : t('unknown'))],
-          [t('profile'), h('span', { className: 'upkeep-mono' }, data && data.profile && data.profile.name ? data.profile.name : t('unknown'))],
-          [t('entries'), h('span', { className: 'upkeep-mono' }, data && data.plugins && typeof data.plugins.entryCount === 'number' ? String(data.plugins.entryCount) : t('unknown'))],
-          [t('bundles'), h('span', { className: 'upkeep-mono' }, data && data.bundles ? String(data.bundles.length) : '0')],
-        ]
-
-        // Official DSH packages are reported, not hidden: the counts say what the list leaves out.
-        const excluded = data && data.excluded ? data.excluded : null
-        const excludedBundles = excluded && typeof excluded.bundles === 'number' ? excluded.bundles : 0
-        const excludedEntries = excluded && typeof excluded.entries === 'number' ? excluded.entries : 0
-        if (excludedBundles > 0 || excludedEntries > 0) {
-          summary.push([t('excluded'), h('span', { className: 'upkeep-mono' },
-            String(excludedBundles) + ' ' + t('bundles') + ' · ' + String(excludedEntries) + ' ' + t('entries'))])
-        }
-
-        // Authorship rollup: the product question is "do MY plugins need care".
         const rollup = data && data.ownership ? data.ownership : null
-        if (rollup) {
-          const mineCount = typeof rollup.mine === 'number' ? rollup.mine : 0
-          const careCount = typeof rollup.needsMaintenance === 'number' ? rollup.needsMaintenance : 0
-          const otherCount = typeof rollup.other === 'number' ? rollup.other : 0
-          summary.push([t('myPlugins'), h('span', { className: 'upkeep-mono' }, String(mineCount))])
-          summary.push([t('needsCare'), h('span', { className: 'upkeep-mono' }, String(careCount))])
-          if (otherCount > 0) summary.push([t('otherAuthors'), h('span', { className: 'upkeep-mono' }, String(otherCount))])
+        const bundles = data && Array.isArray(data.bundles) ? data.bundles : []
+        const ownerOf = (bundle: BundleSummary): string =>
+          bundle.owner && bundle.owner.status ? bundle.owner.status : 'unknown'
+        const mineBundles = bundles.filter(bundle => ownerOf(bundle) === 'mine')
+        const otherBundles = bundles.filter(bundle => ownerOf(bundle) !== 'mine')
+        const mineCount = rollup && typeof rollup.mine === 'number' ? rollup.mine : mineBundles.length
+        const careCount = mineBundles.filter(bundle => bundle.maintenance && bundle.maintenance.state === 'attention').length
+
+        // The sentence is the product: it answers "do my plugins need care" before any table.
+        const statusText = !ready && !data
+          ? t('loading')
+          : mineCount === 0
+            ? t('statusNoMine')
+            : careCount === 0
+              ? (mineCount === 1 ? t('statusHealthyOne') : t('statusHealthy', { mine: mineCount }))
+              : mineCount === 1
+                ? t('statusCareOne')
+                : careCount === 1
+                  ? t('statusCareSingle', { mine: mineCount })
+                  : t('statusCareMany', { care: careCount, mine: mineCount })
+
+        const facts: Child[] = []
+        const runtimeVersion = data && data.dsh && data.dsh.runtimeVersion ? data.dsh.runtimeVersion : t('unknown')
+        facts.push(h('span', { key: 'dsh' }, t('dshVersion') + ' ', h('b', null, runtimeVersion)))
+        const profileName = data && data.profile && data.profile.name ? data.profile.name : t('unknown')
+        facts.push(h('span', { key: 'profile' }, t('profile') + ' ', h('b', null, profileName)))
+        facts.push(h('span', { key: 'bundles' }, t('bundles') + ' ', h('b', null, String(bundles.length))))
+        if (data && data.plugins && typeof data.plugins.entryCount === 'number') {
+          facts.push(h('span', { key: 'entries' }, t('entries') + ' ', h('b', null, String(data.plugins.entryCount))))
+        }
+        if (data && data.plugin && data.plugin.version) {
+          facts.push(h('span', { key: 'upkeep' }, t('pluginVersion') + ' ', h('b', null, data.plugin.version)))
+        }
+        if (data && typeof data.checkedAt === 'number') {
+          facts.push(h('span', { key: 'checked' }, relativeTime(data.checkedAt, locale)))
         }
 
         const warning = data && Array.isArray(data.warnings) && data.warnings.length > 0
@@ -523,20 +568,24 @@ interface Window {
               h('div', null, h('button', { className: 'upkeep-btn', type: 'button', onClick: () => { void store.refresh() } }, t('retry'))))
           : null
 
-        const bundles = data && Array.isArray(data.bundles) ? data.bundles : []
-        const ownerOf = (bundle: BundleSummary): string =>
-          bundle.owner && bundle.owner.status ? bundle.owner.status : 'unknown'
-        const mineBundles = bundles.filter(bundle => ownerOf(bundle) === 'mine')
-        const otherBundles = bundles.filter(bundle => ownerOf(bundle) !== 'mine')
+        // Official DSH packages are reported, not hidden: the footer says what the list leaves out.
+        const excluded = data && data.excluded ? data.excluded : null
+        const excludedBundles = excluded && typeof excluded.bundles === 'number' ? excluded.bundles : 0
+        const excludedEntries = excluded && typeof excluded.entries === 'number' ? excluded.entries : 0
+        const footer = h('div', { className: 'upkeep-footer' },
+          h('span', null, t('officialRule')),
+          excludedBundles > 0 || excludedEntries > 0
+            ? h('span', null, t('excluded') + ' ' + String(excludedBundles) + ' ' + t('bundles') + ' · ' + String(excludedEntries) + ' ' + t('entries'))
+            : null)
 
-        /** One visually separated group: a heading line plus its own table. */
+        /** One visually separated group: a heading line plus its own ledger table. */
         const group = (
           key: 'mine' | 'others',
           title: string,
           hint: string,
           rows: BundleSummary[],
           emptyText: string,
-          options: { collapsible?: boolean; open?: boolean; onToggle?: () => void } = {},
+          options: { collapsible?: boolean; open?: boolean; onToggle?: () => void },
         ): Child => {
           const collapsible = options.collapsible === true
           const open = options.open === true
@@ -550,7 +599,7 @@ interface Window {
                 onClick: options.onToggle,
               },
               h('span', { className: 'upkeep-group-left' },
-                h('span', { className: 'upkeep-group-chevron', 'data-open': open ? 'true' : 'false' }, open ? '▾' : '▸'),
+                h('span', { className: 'upkeep-group-chevron' }, open ? '▾' : '▸'),
                 h('span', { className: 'upkeep-group-title' }, label)),
               h('span', { className: 'upkeep-group-hint' }, hint))
             : h('div', { className: 'upkeep-group-head' },
@@ -562,13 +611,19 @@ interface Window {
             'data-collapsed': collapsible && !open ? 'true' : 'false',
           },
             header,
-            collapsible && !open ? null : renderBundleTable(rows, t, emptyText))
+            collapsible && !open
+              ? null
+              : renderBundleTable(rows, t, emptyText, {
+                  showOwner: key === 'others',
+                  showCare: key === 'mine',
+                }))
         }
 
+        const mineHint = careCount > 0 ? String(careCount) + ' ' + t('needsCare') : t('groupMineHint')
         const groups = !ready && bundles.length === 0
           ? h('div', { className: 'upkeep-empty' }, t('loading'))
           : h('div', { className: 'upkeep-groups' },
-              group('mine', t('groupMine'), t('groupMineHint'), mineBundles, t('noMine')),
+              group('mine', t('groupMine'), mineHint, mineBundles, t('noMine'), {}),
               group('others', t('groupOthers'), t('groupOthersHint'), otherBundles, t('noOthers'), {
                 collapsible: true,
                 open: othersOpen,
@@ -577,12 +632,13 @@ interface Window {
 
         const actions = h('div', { className: 'upkeep-actions' },
           !page && openPanel
-            ? h('button', { className: 'upkeep-btn upkeep-btn-primary', type: 'button', onClick: openPanel }, t('openPanel'))
+            ? h('button', { className: 'upkeep-btn', type: 'button', 'data-variant': 'primary', onClick: openPanel }, t('openPanel'))
             : null,
           h('button', {
             className: 'upkeep-btn',
             type: 'button',
             disabled: loading,
+            'aria-busy': loading ? 'true' : 'false',
             onClick: () => { void store.refresh() },
           }, loading ? t('loading') : t('refresh')))
 
@@ -594,16 +650,20 @@ interface Window {
           h('style', null, CSS),
           h('div', { className: page ? 'upkeep-page-inner' : 'upkeep-tab-inner' },
             h('div', { className: 'upkeep-head' },
-              h('div', null,
+              h('div', { className: 'upkeep-heading' },
                 page ? h('h2', { className: 'upkeep-title' }, t('title')) : h('h3', { className: 'upkeep-title' }, t('title')),
-                h('p', { className: 'upkeep-subtitle' }, page ? t('panelSubtitle') : t('subtitle'))),
+                h('p', { className: 'upkeep-subtitle' }, t('subtitle'))),
               actions),
+            h('p', {
+              className: 'upkeep-status',
+              'data-care': careCount > 0 ? 'true' : 'false',
+              role: 'status',
+            }, statusText),
+            h('div', { className: 'upkeep-meta' }, ...facts),
             failure,
             warning,
-            h('dl', { className: 'upkeep-grid' }, ...summary.flatMap(([label, value]) => [h('dt', { key: 'dt-' + label }, label), h('dd', { key: 'dd-' + label }, value)])),
-            h('div', { className: 'upkeep-mono' }, data && typeof data.checkedAt === 'number' ? relativeTime(data.checkedAt, locale) : ''),
-            h('div', { className: 'upkeep-note' }, t('officialRule')),
-            groups))
+            groups,
+            footer))
       }
 
       function TabBody(props: TabProps): Child {
