@@ -16,8 +16,29 @@ export interface ScheduleServiceLike {
   list?(request?: Record<string, unknown>): Promise<unknown>
 }
 
-/** How this plugin names its tasks, so they can be recognized later. */
+/** How this plugin names its profile-wide task. */
 export const TASK_TITLE = 'Upkeep compatibility check'
+
+/** Title prefix for a task that watches one bundle. */
+export const BUNDLE_TITLE_PREFIX = 'Upkeep: '
+
+/** What one of this plugin's tasks covers. */
+export type UpkeepTaskScope = { kind: 'all' } | { kind: 'bundle'; bundle: string }
+
+/** The task title for one scope. */
+export function taskTitleFor(scope: UpkeepTaskScope): string {
+  return scope.kind === 'all' ? TASK_TITLE : BUNDLE_TITLE_PREFIX + scope.bundle
+}
+
+/** Read a task title back into its scope; unknown titles are not ours. */
+export function parseUpkeepTitle(title: string): UpkeepTaskScope | null {
+  if (title.trim() === TASK_TITLE) return { kind: 'all' }
+  if (title.startsWith(BUNDLE_TITLE_PREFIX)) {
+    const bundle = title.slice(BUNDLE_TITLE_PREFIX.length).trim()
+    if (bundle !== '') return { kind: 'bundle', bundle }
+  }
+  return null
+}
 
 /** Read `ctx.schedule` structurally; `undefined` when the schedule service is not mounted. */
 export function scheduleService(ctx: { get(name: string): unknown }): ScheduleServiceLike | undefined {
@@ -42,12 +63,15 @@ export function scheduleService(ctx: { get(name: string): unknown }): ScheduleSe
 }
 
 /** The prompt the scheduled session receives. */
-export function buildSchedulePrompt(): string {
+export function buildSchedulePrompt(bundle?: string): string {
+  const focus = bundle === undefined
+    ? 'which of MY plugins need care and why'
+    : `whether \`${bundle}\` needs care and why`
   return [
     'Run a DeepSeek Harness plugin compatibility check with dsh-upkeep.',
     '',
     '1. Call the `upkeep_status` tool with `action: "check"` so the target DSH version and every verdict are fresh.',
-    '2. Report, briefly: the running and target DSH versions; which of MY plugins need care and why; for each, the matched migration-guide items if any.',
+    `2. Report, briefly: the running and target DSH versions; ${focus}; the matched migration-guide items, if any.`,
     '3. Do not modify any file or repository in this run. If something needs care, say what to do next: open the Upkeep panel and press Upgrade (optionally in a worktree), then Verify and Create PR.',
   ].join('\n')
 }
@@ -67,18 +91,19 @@ export function clampIntervalSeconds(hours: number): number {
  */
 export async function createUpkeepTask(
   service: ScheduleServiceLike,
-  options: { intervalHours: number; cwd: string },
+  options: { intervalHours: number; cwd: string; bundle?: string },
 ): Promise<{ id: string | null; title: string; timing: Record<string, unknown> }> {
   const timing = { kind: 'every', every_seconds: clampIntervalSeconds(options.intervalHours) }
+  const title = taskTitleFor(options.bundle === undefined ? { kind: 'all' } : { kind: 'bundle', bundle: options.bundle })
   const created = await service.create({
-    title: TASK_TITLE,
-    prompt: buildSchedulePrompt(),
+    title,
+    prompt: buildSchedulePrompt(options.bundle),
     timing,
     target: { kind: 'new_once', create: options.cwd.trim() === '' ? {} : { cwd: options.cwd } },
   })
   const id = isRecord(created) && typeof created.id === 'string' ? created.id : null
-  const title = isRecord(created) && typeof created.title === 'string' ? created.title : TASK_TITLE
-  return { id, title, timing }
+  const createdTitle = isRecord(created) && typeof created.title === 'string' ? created.title : title
+  return { id, title: createdTitle, timing }
 }
 
 /** List the tasks this plugin created, newest fields preserved as-is. */

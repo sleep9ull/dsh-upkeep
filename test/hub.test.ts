@@ -495,3 +495,62 @@ test('one refresh button: a check reuses a fresh cached target and only refetche
   await hub.call('check', {}, { caller: 'client' })
   assert.equal(fetches, 3)
 })
+
+test('the snapshot reports which plugins a scheduled task already covers', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-sched-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-sched-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-sched-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(packageDir, { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
+    name: '@sleep9ull/plugin', version: '1.0.0', engines: { dsh: '>=0.2.2-rc.1 <0.3.0' },
+  }))
+
+  const tasks: Array<Record<string, unknown>> = []
+  const schedule = {
+    create: async (request: unknown) => {
+      const entry = { id: 'task-' + String(tasks.length + 1), status: 'active', ...(request as Record<string, unknown>) }
+      tasks.push(entry)
+      return entry
+    },
+    catalog: async () => tasks,
+  }
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [] }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+    schedule,
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false }), TEST_DEPS)
+
+  const before = await hub.call('status', {}, { caller: 'client' }) as {
+    scheduled: { available: boolean; all: boolean; bundles: string[] }
+  }
+  assert.equal(before.scheduled.available, true)
+  assert.equal(before.scheduled.all, false)
+  assert.deepEqual(before.scheduled.bundles, [])
+
+  // A bundle-scoped task covers exactly that plugin.
+  await hub.call('schedule.create', { confirm: true, bundle: '@sleep9ull/plugin' }, { caller: 'client' })
+  const scoped = await hub.call('status', {}, { caller: 'client' }) as {
+    scheduled: { available: boolean; all: boolean; bundles: string[] }
+  }
+  assert.equal(scoped.scheduled.all, false)
+  assert.deepEqual(scoped.scheduled.bundles, ['@sleep9ull/plugin'])
+
+  // The profile-wide task covers everything.
+  await hub.call('schedule.create', { confirm: true }, { caller: 'client' })
+  const wide = await hub.call('status', {}, { caller: 'client' }) as {
+    scheduled: { available: boolean; all: boolean; bundles: string[] }
+  }
+  assert.equal(wide.scheduled.all, true)
+
+  // Paused tasks stop covering anything.
+  tasks.forEach(task => { task.status = 'paused' })
+  const paused = await hub.call('status', {}, { caller: 'client' }) as {
+    scheduled: { available: boolean; all: boolean; bundles: string[] }
+  }
+  assert.equal(paused.scheduled.all, false)
+  assert.deepEqual(paused.scheduled.bundles, [])
+})

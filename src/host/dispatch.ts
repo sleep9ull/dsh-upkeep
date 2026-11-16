@@ -47,7 +47,7 @@ import { fetchRemoteGuides, readInstalledGuides, type GuideSet } from './guides.
 import { summarizeMatches, matchGuides, type ImpactSummary, type GuideMatch } from './match.js'
 import { scanSurfaces, type SurfaceInventory } from './surfaces.js'
 import { createExecRunner, type ExecRunner } from './exec.js'
-import { createUpkeepTask, listUpkeepTasks, scheduleService } from './schedule.js'
+import { createUpkeepTask, listUpkeepTasks, parseUpkeepTitle, scheduleService } from './schedule.js'
 import {
   buildDeliveryText,
   commitWorkspace,
@@ -279,6 +279,8 @@ export interface StatusSnapshot {
   delivery: { allowMerge: boolean; baseBranch: string }
   /** Optional Host services the profile actually mounted. */
   capabilities: { schedule: boolean; workspaceRegistry: boolean }
+  /** Scheduled checks already created through the schedule service. */
+  scheduled: { available: boolean; all: boolean; bundles: string[] }
   /** Authorship rollup plus the identity it was matched against. */
   ownership: {
     mine: number
@@ -509,6 +511,27 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     }
   }
 
+  /** Which plugins a live scheduled task already watches. */
+  async function readScheduled(): Promise<{ available: boolean; all: boolean; bundles: string[] }> {
+    const service = scheduleService(ctx)
+    if (service === undefined) return { available: false, all: false, bundles: [] }
+    try {
+      const tasks = await listUpkeepTasks(service)
+      const live = tasks.filter(task => task.status !== 'paused' && task.status !== 'ended')
+      const bundles: string[] = []
+      let all = false
+      for (const task of live) {
+        const scope = parseUpkeepTitle(task.title)
+        if (scope === null) continue
+        if (scope.kind === 'all') all = true
+        else if (!bundles.includes(scope.bundle)) bundles.push(scope.bundle)
+      }
+      return { available: true, all, bundles }
+    } catch {
+      return { available: true, all: false, bundles: [] }
+    }
+  }
+
   /** Resolve one monitored bundle listing by package name. */
   async function monitoredListing(name: string): Promise<BundleListing | undefined> {
     if (manager === undefined) return undefined
@@ -695,6 +718,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
       profile: { name: profile?.name ?? null, dir: profile?.dir ?? null },
       target,
       delivery: { allowMerge: config.allowMerge, baseBranch: config.defaultBaseBranch },
+      scheduled: await readScheduled(),
       capabilities: {
         schedule: scheduleService(ctx) !== undefined,
         workspaceRegistry: isRecord(ctx.get('workspaceRegistry')) && typeof (ctx.get('workspaceRegistry') as Record<string, unknown>).create === 'function',
@@ -1020,7 +1044,8 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
           ? Math.min(Math.max(input.intervalHours, 1), 720)
           : config.scheduleIntervalHours
         const cwd = config.scheduleCwd === '' ? home : config.scheduleCwd
-        const task = await createUpkeepTask(service, { intervalHours, cwd })
+        const bundle = typeof input.bundle === 'string' && input.bundle.trim() !== '' ? input.bundle.trim() : undefined
+        const task = await createUpkeepTask(service, { intervalHours, cwd, ...(bundle === undefined ? {} : { bundle }) })
         return { task, intervalHours, cwd }
       },
     },

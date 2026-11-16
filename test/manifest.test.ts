@@ -80,6 +80,11 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   assert.match(client, /refreshing/)
   assert.match(client, /t\('check'\)|'check'/)
   assert.doesNotMatch(client, /checkNow/)
+  // One fixed-width primary button: the busy label must not resize it.
+  assert.match(client, /min-width: 7\.4em/)
+  // The author's ledger reports scheduled coverage per plugin.
+  assert.match(client, /upkeep-scheduled/)
+  assert.match(client, /newScheduled/)
   // M3: the panel can prepare an upgrade session and verify it afterwards.
   assert.match(client, /upgrade.prepare/)
   assert.match(client, /upgrade.verify/)

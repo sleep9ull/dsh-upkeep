@@ -2,6 +2,8 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import {
   TASK_TITLE,
+  parseUpkeepTitle,
+  taskTitleFor,
   buildSchedulePrompt,
   clampIntervalSeconds,
   createUpkeepTask,
@@ -68,4 +70,17 @@ test('the service is read structurally and absent cleanly', () => {
   assert.equal(scheduleService({ get: () => ({ list: async () => [] }) }), undefined)
   const minimal = scheduleService({ get: () => ({ create: async () => ({}), list: async () => [] }) })
   assert.equal(typeof minimal?.create, 'function')
+})
+
+test('task titles map to and from their scope', () => {
+  assert.deepEqual(parseUpkeepTitle(TASK_TITLE), { kind: 'all' })
+  assert.deepEqual(parseUpkeepTitle(taskTitleFor({ kind: 'bundle', bundle: '@a/b' })), { kind: 'bundle', bundle: '@a/b' })
+  assert.equal(parseUpkeepTitle('Somebody else task'), null)
+  assert.equal(parseUpkeepTitle('Upkeep: '), null)
+})
+
+test('a bundle-scoped prompt names the plugin', () => {
+  const prompt = buildSchedulePrompt('@sleep9ull/plugin')
+  assert.match(prompt, /@sleep9ull\/plugin/)
+  assert.match(prompt, /Do not modify any file/)
 })

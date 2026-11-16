@@ -111,6 +111,7 @@ type StatusSnapshot = {
   lastCheck?: LastCheckView
   delivery?: { allowMerge?: boolean; baseBranch?: string }
   capabilities?: { schedule?: boolean; workspaceRegistry?: boolean }
+  scheduled?: { available?: boolean; all?: boolean; bundles?: string[] }
   bundles?: BundleSummary[]
   plugins?: { entryCount?: number | null }
   excluded?: { bundles?: number; entries?: number }
@@ -311,7 +312,9 @@ interface Window {
         confirmMerge: 'Merge this pull request now?',
         prCreated: 'Pull request created:',
         mergeDone: 'Pull request merged.',
-        scheduleCheck: 'Schedule check',
+        newScheduled: 'New Scheduled',
+        scheduled: 'Scheduled',
+        scheduledHint: 'A recurring check covers this plugin.',
         confirmSchedule: 'Create a recurring compatibility check?',
         scheduleCreated: 'Scheduled: {title}. Manage it on the Automation tasks page.',
         scheduleUnavailable: 'The schedule service is not mounted in this profile.',
@@ -387,7 +390,9 @@ interface Window {
         confirmMerge: '现在合并这个 PR？',
         prCreated: 'PR 已创建：',
         mergeDone: 'PR 已合并。',
-        scheduleCheck: '定时检查',
+        newScheduled: '新建定时',
+        scheduled: '定时',
+        scheduledHint: '已有周期性检查覆盖这个插件。',
         confirmSchedule: '创建一个周期性兼容性检查任务？',
         scheduleCreated: '已创建：{title}。可在 Automation tasks 页面管理。',
         scheduleUnavailable: '当前 profile 未挂载定时任务服务。',
@@ -433,6 +438,8 @@ interface Window {
 [data-upkeep].upkeep-page .upkeep-title { font-size: 20px; }
 [data-upkeep] .upkeep-subtitle { margin: 3px 0 0; max-width: 64ch; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.55; }
 [data-upkeep] .upkeep-actions { display: flex; flex: none; gap: 8px; }
+[data-upkeep] .upkeep-actions .upkeep-btn[data-variant="primary"] { min-width: 7.4em; text-align: center; }
+[data-upkeep] .upkeep-scheduled { width: 1%; white-space: nowrap; }
 
 [data-upkeep] .upkeep-status { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.45; letter-spacing: -0.01em; }
 [data-upkeep].upkeep-page .upkeep-status { font-size: 19px; }
@@ -744,7 +751,12 @@ interface Window {
         bundles: BundleSummary[],
         t: Translate,
         emptyText: string,
-        options: { mine: boolean; targetVersion: string | null; onUpgrade?: ((bundle: BundleSummary) => void) | null },
+        options: {
+          mine: boolean
+          targetVersion: string | null
+          scheduled: { all: boolean; bundles: string[] }
+          onUpgrade?: ((bundle: BundleSummary) => void) | null
+        },
       ): Child {
         if (bundles.length === 0) return h('div', { className: 'upkeep-empty' }, emptyText)
         const headers: Child[] = [
@@ -752,6 +764,7 @@ interface Window {
           h('th', { key: 'version' }, t('version')),
           h('th', { key: 'status' }, t('status')),
         ]
+        if (options.mine) headers.push(h('th', { key: 'scheduled', className: 'upkeep-scheduled' }, t('scheduled')))
 
         return h('div', { className: 'upkeep-table-scroll' },
           h('table', { className: 'upkeep-table' },
@@ -802,6 +815,14 @@ interface Window {
                         }, t('upgrade'))
                       : null),
                 ]
+                if (options.mine) {
+                  const covered = options.scheduled.all
+                    || (typeof bundle.name === 'string' && options.scheduled.bundles.includes(bundle.name))
+                  cells.push(h('td', { key: 'scheduled', className: 'upkeep-scheduled' },
+                    covered
+                      ? chip('✓', 'ok', t('scheduledHint'))
+                      : h('span', { className: 'upkeep-muted' }, '—')))
+                }
                 return h('tr', { key: (bundle.name || 'bundle') + '-' + index, 'data-care': care }, ...cells)
               }))))
       }
@@ -933,6 +954,7 @@ interface Window {
               : renderBundleTable(rows, t, emptyText, {
                   mine: key === 'mine',
                   targetVersion,
+                  scheduled: { all: scheduledAll, bundles: scheduledBundles },
                   onUpgrade: key === 'mine' ? requestUpgrade : null,
                 }))
         }
@@ -963,6 +985,9 @@ interface Window {
                 onToggle: () => setOthersOpen((open: boolean) => !open),
               }))
 
+        const scheduledInfo = data && data.scheduled ? data.scheduled : undefined
+        const scheduledAll = scheduledInfo !== undefined && scheduledInfo.all === true
+        const scheduledBundles = scheduledInfo !== undefined && Array.isArray(scheduledInfo.bundles) ? scheduledInfo.bundles : []
         const busy = loading || state.phase === 'checking' || state.phase === 'upgrading'
         const actions = h('div', { className: 'upkeep-actions' },
           !page && openPanel
@@ -986,7 +1011,7 @@ interface Window {
             onClick: () => {
               if (typeof window.confirm !== 'function' || window.confirm(t('confirmSchedule'))) void store.createSchedule()
             },
-          }, t('scheduleCheck')))
+          }, t('newScheduled')))
 
         return h('div', {
           'data-upkeep': '',
