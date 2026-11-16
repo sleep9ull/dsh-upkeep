@@ -51,14 +51,20 @@ type RpcFailure = { code: string; message: string }
 
 /* ---- Host payloads ----------------------------------------------- */
 
+type OwnershipVerdict = { status?: 'mine' | 'other' | 'unknown'; evidence?: string[] }
+type MaintenanceVerdict = { state?: 'ok' | 'attention' | 'unknown' | 'not-mine'; reasons?: string[] }
+
 type BundleSummary = {
   name?: string
   version?: string | null
   enabled?: boolean
   official?: boolean
   availability?: string | null
+  source?: string | null
   rowCount?: number
   error?: { code?: string; diagnostic?: string | null } | null
+  owner?: OwnershipVerdict
+  maintenance?: MaintenanceVerdict
 }
 
 type StatusSnapshot = {
@@ -69,6 +75,13 @@ type StatusSnapshot = {
   bundles?: BundleSummary[]
   plugins?: { entryCount?: number | null }
   excluded?: { bundles?: number; entries?: number }
+  ownership?: {
+    mine?: number
+    other?: number
+    unknown?: number
+    needsMaintenance?: number
+    identity?: { handles?: string[]; sources?: string[] }
+  }
   warnings?: string[]
 }
 
@@ -164,6 +177,17 @@ interface Window {
         failed: 'load error',
         excluded: 'Excluded',
         officialRule: 'Official @deepseek-ai packages ship with DSH and are not monitored.',
+        owner: 'Owner',
+        care: 'Care',
+        mine: 'Mine',
+        otherOwner: 'Other author',
+        unknownOwner: 'Unknown',
+        needsCare: 'Needs care',
+        healthy: 'Healthy',
+        unknownCare: 'Unknown',
+        notMine: 'Not mine',
+        myPlugins: 'My plugins',
+        otherAuthors: 'Other authors',
         empty: 'No bundles were reported.',
         warnings: 'Warnings',
         notConnected: 'The panel is not connected to the Host yet.',
@@ -195,6 +219,17 @@ interface Window {
         failed: '加载失败',
         excluded: '已排除',
         officialRule: '官方 @deepseek-ai 插件随 DSH 发布，不纳入监测。',
+        owner: '归属',
+        care: '维护',
+        mine: '我的',
+        otherOwner: '他人',
+        unknownOwner: '未知',
+        needsCare: '需维护',
+        healthy: '正常',
+        unknownCare: '未知',
+        notMine: '—',
+        myPlugins: '我的插件',
+        otherAuthors: '他人插件',
         empty: '没有读取到任何 bundle。',
         warnings: '提示',
         notConnected: '面板尚未连接到 Host。',
@@ -234,6 +269,7 @@ interface Window {
 [data-upkeep] .upkeep-error { padding: 8px 10px; border: 1px solid var(--dsw-alias-state-error-primary); border-radius: var(--dsw-radius-md, 6px); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 [data-upkeep] .upkeep-empty { color: var(--dsw-alias-label-secondary); font-size: 12px; }
 [data-upkeep] .upkeep-note { color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.5; }
+[data-upkeep] .upkeep-muted { color: var(--dsw-alias-label-secondary); font-size: 11px; }
 @media (max-width: 520px) {
   [data-upkeep] .upkeep-head { flex-wrap: wrap; }
 }
@@ -331,6 +367,30 @@ interface Window {
         return { label: t('enabled'), state: 'ok' }
       }
 
+      /** One state chip; `title` carries the evidence or reasons behind it. */
+      function chip(label: string, state: 'ok' | 'warn' | 'error', title?: string): Child {
+        return h('span', { className: 'upkeep-chip', 'data-state': state, title }, label)
+      }
+
+      /** Authorship chip: mine / other author / unknown, with the evidence on hover. */
+      function ownerChip(bundle: BundleSummary, t: Translate): Child {
+        const status = bundle.owner && bundle.owner.status ? bundle.owner.status : 'unknown'
+        const evidence = bundle.owner && Array.isArray(bundle.owner.evidence) ? bundle.owner.evidence.join(' · ') : ''
+        if (status === 'mine') return chip(t('mine'), 'ok', evidence)
+        if (status === 'other') return chip(t('otherOwner'), 'warn', evidence)
+        return chip(t('unknownOwner'), 'warn', evidence)
+      }
+
+      /** Maintenance chip for the author's own plugins; other authors get a dash. */
+      function careChip(bundle: BundleSummary, t: Translate): Child {
+        const state = bundle.maintenance && bundle.maintenance.state ? bundle.maintenance.state : 'unknown'
+        const reasons = bundle.maintenance && Array.isArray(bundle.maintenance.reasons) ? bundle.maintenance.reasons.join('; ') : ''
+        if (state === 'attention') return chip(t('needsCare'), 'error', reasons)
+        if (state === 'ok') return chip(t('healthy'), 'ok')
+        if (state === 'not-mine') return h('span', { className: 'upkeep-muted' }, '—')
+        return chip(t('unknownCare'), 'warn', reasons)
+      }
+
       /* ------------------------------------------------------------------ *
        * Tab body
        * ------------------------------------------------------------------ */
@@ -366,6 +426,17 @@ interface Window {
             String(excludedBundles) + ' ' + t('bundles') + ' · ' + String(excludedEntries) + ' ' + t('entries'))])
         }
 
+        // Authorship rollup: the product question is "do MY plugins need care".
+        const rollup = data && data.ownership ? data.ownership : null
+        if (rollup) {
+          const mineCount = typeof rollup.mine === 'number' ? rollup.mine : 0
+          const careCount = typeof rollup.needsMaintenance === 'number' ? rollup.needsMaintenance : 0
+          const otherCount = typeof rollup.other === 'number' ? rollup.other : 0
+          summary.push([t('myPlugins'), h('span', { className: 'upkeep-mono' }, String(mineCount))])
+          summary.push([t('needsCare'), h('span', { className: 'upkeep-mono' }, String(careCount))])
+          if (otherCount > 0) summary.push([t('otherAuthors'), h('span', { className: 'upkeep-mono' }, String(otherCount))])
+        }
+
         const warning = data && Array.isArray(data.warnings) && data.warnings.length > 0
           ? h('div', { className: 'upkeep-warn', role: 'status' },
               h('strong', null, t('warnings')),
@@ -387,16 +458,18 @@ interface Window {
                   h('th', null, t('bundle')),
                   h('th', null, t('version')),
                   h('th', null, t('state')),
-                  h('th', null, t('source')),
+                  h('th', null, t('owner')),
+                  h('th', null, t('care')),
                   h('th', { className: 'upkeep-num' }, t('rows')))),
               h('tbody', null,
                 ...bundles.map((bundle, index) => {
                   const status = bundleState(bundle, t)
                   return h('tr', { key: (bundle.name || 'bundle') + '-' + index },
-                    h('td', null, h('span', { className: 'upkeep-mono' }, bundle.name || t('unknown'))),
+                    h('td', null, h('span', { className: 'upkeep-mono', title: bundle.source || '' }, bundle.name || t('unknown'))),
                     h('td', { className: 'upkeep-mono' }, bundle.version || '—'),
-                    h('td', null, h('span', { className: 'upkeep-chip', 'data-state': status.state }, status.label)),
-                    h('td', null, (bundle.official ? 'official' : '') + (bundle.official && bundle.availability ? ' · ' : '') + (bundle.availability || '')),
+                    h('td', null, chip(status.label, status.state)),
+                    h('td', null, ownerChip(bundle, t)),
+                    h('td', null, careChip(bundle, t)),
                     h('td', { className: 'upkeep-num upkeep-mono' }, typeof bundle.rowCount === 'number' ? String(bundle.rowCount) : '—'))
                 })))
 

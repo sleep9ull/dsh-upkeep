@@ -13,6 +13,8 @@ import { fileURLToPath } from 'node:url'
 
 import type { HostContext, ProfileContext } from './types.js'
 import { errorCode, errorMessage, isRecord, pluginManager, profileContext } from './types.js'
+import { classifyOwnership, readPackageFacts, resolveOwnerIdentity } from './owner.js'
+import type { OwnerIdentity, OwnershipVerdict } from './owner.js'
 
 /** The plugin's own version, read once from the package manifest beside `dist/`. */
 const OWN_VERSION = (() => {
@@ -49,6 +51,24 @@ export interface HubConfig {
   concurrency: number
   /** Directory under which upgrade worktrees are created; empty means the repository's sibling directory. */
   worktreeRoot: string
+  /** Account handles that identify this machine's author; empty means auto-detect only. */
+  ownerHandles: string[]
+  /** Author email addresses that identify this machine's author. */
+  ownerEmails: string[]
+  /** Whether the local git and GitHub identity may be used for matching. */
+  autoDetectOwner: boolean
+}
+
+/** Split a config value into a normalized string list. */
+function normalizeConfigList(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : []
+  const seen = new Set<string>()
+  for (const entry of raw) {
+    if (typeof entry !== 'string') continue
+    const normalized = entry.trim().replace(/^@/, '').toLowerCase()
+    if (normalized !== '') seen.add(normalized)
+  }
+  return [...seen]
 }
 
 /** Read the Loader row config defensively; every field has a working default. */
@@ -60,6 +80,9 @@ export function normalizeConfig(raw: unknown): HubConfig {
     checkOnStartup: config.checkOnStartup !== false,
     concurrency: Math.min(Math.max(concurrency, 1), 8),
     worktreeRoot: typeof config.worktreeRoot === 'string' ? config.worktreeRoot : '',
+    ownerHandles: normalizeConfigList(config.ownerHandles),
+    ownerEmails: normalizeConfigList(config.ownerEmails),
+    autoDetectOwner: config.autoDetectOwner !== false,
   }
 }
 
@@ -93,6 +116,13 @@ export interface ActionSpec {
   run(input: Record<string, unknown>, call: CallContext): Promise<unknown>
 }
 
+/** Whether one of the author's own plugins needs attention. */
+export interface MaintenanceVerdict {
+  state: 'ok' | 'attention' | 'unknown' | 'not-mine'
+  /** Short, human-readable reasons shown on hover; empty unless the state is `attention`. */
+  reasons: string[]
+}
+
 /** A client-safe bundle summary. */
 export interface BundleSummary {
   name: string
@@ -100,8 +130,14 @@ export interface BundleSummary {
   enabled: boolean
   official: boolean
   availability: string | null
+  /** The spec the profile records, when the bundle lists one. */
+  source: string | null
   rowCount: number
   error: { code: string; diagnostic: string | null } | null
+  /** Authorship with the evidence behind it. */
+  owner: OwnershipVerdict
+  /** Whether this author's plugin needs care. */
+  maintenance: MaintenanceVerdict
 }
 
 /** What one installed plugin entry looks like after the M0 projection. */
@@ -114,6 +150,14 @@ export interface StatusSnapshot {
   plugins: { entryCount: number | null }
   /** Official DSH packages left out of the monitored view, reported instead of hidden. */
   excluded: { bundles: number; entries: number }
+  /** Authorship rollup plus the identity it was matched against. */
+  ownership: {
+    mine: number
+    other: number
+    unknown: number
+    needsMaintenance: number
+    identity: { handles: string[]; sources: string[] }
+  }
   warnings: string[]
 }
 
@@ -145,8 +189,14 @@ function readRuntimeVersion(profile: ProfileContext | undefined): { version: str
   }
 }
 
-/** Project one `listBundles()` row into the client-safe summary. */
-function summarizeBundle(value: unknown): BundleSummary | undefined {
+/** One listed bundle before ownership and live state are joined onto it. */
+interface BundleListing {
+  base: Omit<BundleSummary, 'owner' | 'maintenance'>
+  rowEntryIds: string[]
+}
+
+/** Project one `listBundles()` row into the client-safe base fields. */
+function readBundleListing(value: unknown): BundleListing | undefined {
   if (!isRecord(value) || typeof value.name !== 'string') return undefined
   const rows = Array.isArray(value.rows) ? value.rows : []
   const error = isRecord(value.error)
@@ -155,41 +205,93 @@ function summarizeBundle(value: unknown): BundleSummary | undefined {
         diagnostic: typeof value.error.diagnostic === 'string' ? value.error.diagnostic : null,
       }
     : null
+  const rowEntryIds: string[] = []
+  for (const row of rows) {
+    if (isRecord(row) && typeof row.entryId === 'string') rowEntryIds.push(row.entryId)
+  }
   return {
-    name: value.name,
-    version: typeof value.version === 'string' ? value.version : null,
-    enabled: value.enabled === true,
-    official: value.official === true,
-    availability: typeof value.availability === 'string' ? value.availability : null,
-    rowCount: rows.length,
-    error,
+    base: {
+      name: value.name,
+      version: typeof value.version === 'string' ? value.version : null,
+      enabled: value.enabled === true,
+      official: value.official === true,
+      availability: typeof value.availability === 'string' ? value.availability : null,
+      source: typeof value.source === 'string' ? value.source : null,
+      rowCount: rows.length,
+      error,
+    },
+    rowEntryIds,
   }
 }
 
-/** Live plugin-entry counts, split into what the monitor watches and what it excludes. */
-interface EntryCounts {
+/** One live plugin entry the maintenance verdict reads. */
+interface LiveEntry {
+  fiberPhase: string | null
+  diagnostic: string | null
+}
+
+/** Live plugin entries plus the monitored/excluded counts. */
+interface LiveEntries {
+  byEntryId: Map<string, LiveEntry>
   monitored: number | null
   excluded: number
 }
 
-/** Count live plugin entries, excluding the rows of official DSH packages. */
-async function countPluginEntries(ctx: HostContext): Promise<EntryCounts> {
+/** Read live plugin entries once, excluding the rows of official DSH packages from the count. */
+async function readPluginEntries(ctx: HostContext): Promise<LiveEntries> {
+  const empty: LiveEntries = { byEntryId: new Map(), monitored: null, excluded: 0 }
   const value = ctx.get('pluginManager')
-  if (!isRecord(value) || typeof value.listPlugins !== 'function') return { monitored: null, excluded: 0 }
+  if (!isRecord(value) || typeof value.listPlugins !== 'function') return empty
   try {
-    const entries: unknown = await (value.listPlugins as () => Promise<unknown>).call(value)
-    if (!Array.isArray(entries)) return { monitored: null, excluded: 0 }
+    const listed: unknown = await (value.listPlugins as () => Promise<unknown>).call(value)
+    if (!Array.isArray(listed)) return empty
+    const byEntryId = new Map<string, LiveEntry>()
     let monitored = 0
     let excluded = 0
-    for (const entry of entries) {
-      const moduleName = isRecord(entry) && typeof entry.moduleName === 'string' ? entry.moduleName : ''
-      if (isOfficialPackage(moduleName)) excluded += 1
+    for (const entry of listed) {
+      if (!isRecord(entry)) continue
+      const moduleName = typeof entry.moduleName === 'string' ? entry.moduleName : ''
+      const official = isOfficialPackage(moduleName)
+      if (official) excluded += 1
       else monitored += 1
+      if (typeof entry.entryId === 'string') {
+        byEntryId.set(entry.entryId, {
+          fiberPhase: typeof entry.fiberPhase === 'string' ? entry.fiberPhase : null,
+          diagnostic: typeof entry.diagnostic === 'string' ? entry.diagnostic : null,
+        })
+      }
     }
-    return { monitored, excluded }
+    return { byEntryId, monitored, excluded }
   } catch {
-    return { monitored: null, excluded: 0 }
+    return empty
   }
+}
+
+/** Whether one of the author's plugins currently needs care, and why. */
+function classifyMaintenance(
+  ownership: OwnershipVerdict,
+  bundle: Omit<BundleSummary, 'owner' | 'maintenance'>,
+  rowEntryIds: string[],
+  live: LiveEntries,
+): MaintenanceVerdict {
+  if (ownership.status !== 'mine') return { state: 'not-mine', reasons: [] }
+  const reasons: string[] = []
+  if (bundle.error?.code === 'incompatible-version') reasons.push('declared incompatible with the running DSH')
+
+  let failed = 0
+  let pending = 0
+  for (const entryId of rowEntryIds) {
+    const entry = live.byEntryId.get(entryId)
+    if (entry === undefined) continue
+    if (entry.fiberPhase === 'failed') failed += 1
+    else if (entry.fiberPhase === 'pending') pending += 1
+  }
+  if (failed > 0) reasons.push(`${failed} plugin ${failed === 1 ? 'row' : 'rows'} failed to load`)
+  if (pending > 0) reasons.push(`${pending} plugin ${pending === 1 ? 'row' : 'rows'} waiting for a service`)
+
+  if (reasons.length > 0) return { state: 'attention', reasons }
+  if (live.monitored === null) return { state: 'unknown', reasons: ['live plugin state is unavailable'] }
+  return { state: 'ok', reasons: [] }
 }
 
 /**
@@ -200,6 +302,11 @@ async function countPluginEntries(ctx: HostContext): Promise<EntryCounts> {
 export function createHub(ctx: HostContext, config: HubConfig): Hub {
   const profile = profileContext(ctx)
   const manager = pluginManager(ctx)
+  const ownerIdentity: OwnerIdentity = resolveOwnerIdentity({
+    handles: config.ownerHandles,
+    emails: config.ownerEmails,
+    autoDetect: config.autoDetectOwner,
+  })
 
   /** Read the status snapshot once; every read action projects from it. */
   async function snapshot(call: CallContext): Promise<StatusSnapshot> {
@@ -207,15 +314,15 @@ export function createHub(ctx: HostContext, config: HubConfig): Hub {
     const warnings: string[] = []
     const runtime = readRuntimeVersion(profile)
     if (runtime.version === null) warnings.push('The running DSH version could not be read from the profile installation anchor.')
+    if (ownerIdentity.handles.length === 0 && ownerIdentity.emails.length === 0) {
+      warnings.push('No owner identity was detected; ownership is reported as unknown. Set ownerHandles in the plugin configuration.')
+    }
 
-    let bundles: BundleSummary[] = []
-    let excludedBundles = 0
+    let listings: BundleListing[] = []
     if (manager) {
       try {
         const listed = await manager.listBundles()
-        const summaries = listed.map(summarizeBundle).filter((entry): entry is BundleSummary => entry !== undefined)
-        bundles = summaries.filter(entry => !isOfficialPackage(entry.name))
-        excludedBundles = summaries.length - bundles.length
+        listings = listed.map(readBundleListing).filter((entry): entry is BundleListing => entry !== undefined)
       } catch (error) {
         warnings.push(`Installed bundles could not be listed: ${errorMessage(error) ?? 'unknown error'}`)
       }
@@ -223,7 +330,25 @@ export function createHub(ctx: HostContext, config: HubConfig): Hub {
       warnings.push('The plugin manager service is not mounted; installed bundles are unknown.')
     }
 
-    const entries = await countPluginEntries(ctx)
+    const live = await readPluginEntries(ctx)
+    const monitored = listings.filter(entry => !isOfficialPackage(entry.base.name))
+    const excludedBundles = listings.length - monitored.length
+
+    const bundles: BundleSummary[] = monitored.map((listing) => {
+      const facts = readPackageFacts(listing.base.name, listing.base.source ?? undefined, profile?.dir, profile?.installAnchor)
+      const owner = classifyOwnership(facts, ownerIdentity, listing.base.name)
+      return {
+        ...listing.base,
+        owner,
+        maintenance: classifyMaintenance(owner, listing.base, listing.rowEntryIds, live),
+      }
+    })
+
+    const rollup = { mine: 0, other: 0, unknown: 0, needsMaintenance: 0 }
+    for (const bundle of bundles) {
+      rollup[bundle.owner.status] += 1
+      if (bundle.maintenance.state === 'attention') rollup.needsMaintenance += 1
+    }
 
     return {
       checkedAt: Date.now(),
@@ -231,8 +356,12 @@ export function createHub(ctx: HostContext, config: HubConfig): Hub {
       dsh: { runtimeVersion: runtime.version, installAnchor: runtime.anchor },
       profile: { name: profile?.name ?? null, dir: profile?.dir ?? null },
       bundles,
-      plugins: { entryCount: entries.monitored },
-      excluded: { bundles: excludedBundles, entries: entries.excluded },
+      plugins: { entryCount: live.monitored },
+      excluded: { bundles: excludedBundles, entries: live.excluded },
+      ownership: {
+        ...rollup,
+        identity: { handles: ownerIdentity.handles, sources: ownerIdentity.sources },
+      },
       warnings,
     }
   }

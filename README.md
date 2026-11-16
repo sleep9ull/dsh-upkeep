@@ -24,7 +24,7 @@ Two doors, one implementation: everything the panel can do is available to the a
 
 | Capability | State |
 |---|---|
-| Fixed **Upkeep** panel in the sidebar (level with Plugins), plus a tab in **Settings → Plugins**, status snapshot, `upkeep_status` tool | **Shipped (M0)** |
+| Fixed **Upkeep** panel in the sidebar (level with Plugins), plus a tab in **Settings → Plugins**, status snapshot, ownership and care verdicts, `upkeep_status` tool | **Shipped (M0)** |
 | Compat watch list, declared/runtime/projected compatibility, history | In progress (M1) |
 | Migration-guide matching and a per-plugin breakage report | Planned (M2) |
 | One-click upgrade in a session or worktree, layered verification | Planned (M3) |
@@ -65,7 +65,7 @@ Pull the checkout, run `npm install && npm run build`, and reload. A future rele
 
 | Entry | What it does |
 |---|---|
-| **Upkeep panel** | A fixed icon in the left sidebar panel list, level with **Plugins** and **Automation tasks**. Click it to open the full page: the running DSH version, the current profile, the plugin-entry count, and every installed bundle with its version, state, source and load error. **Refresh** re-reads it. |
+| **Upkeep panel** | A fixed icon in the left sidebar panel list, level with **Plugins** and **Automation tasks**. Click it to open the full page: the running DSH version, the current profile, the plugin-entry count, and every installed bundle with its version, state, owner and care verdict. **Refresh** re-reads it. |
 | **Upkeep tab** | **Settings → Plugins → Upkeep** shows the same view for when you are already managing plugins; its header button jumps to the full panel. |
 | **`upkeep_status` tool** | The agent reads the same snapshot in-session. Pass `action: "bundles.list"` for just the bundle list. Read-only: no installs, no edits, no network. |
 
@@ -75,7 +75,9 @@ The panel answers one question first: **what is this installation actually runni
 
 - The header shows the page title and gives you one button, **Refresh**.
 - The summary block shows the running DSH version, the profile name, the number of live plugin entries, and how many bundles are installed.
-- The bundle table lists each bundle with its version, state (`enabled`, `disabled`, `load error`), source availability and row count.
+- The bundle table lists each bundle with its version, state (`enabled`, `disabled`, `load error`), **owner** (`Mine` / `Other author` / `Unknown`) and **care** (`Needs care` / `Healthy` / `Unknown`). Hovering a verdict shows the evidence behind it.
+- Ownership is inferred, never assumed: the package scope, `author`, `repository`, and the git remote of a local checkout are matched against your identity — `ownerHandles` / `ownerEmails` in the plugin configuration, plus the `~/.gitconfig` name/email and the signed-in `gh` account. A plugin with no recognizable signal stays **Unknown**.
+- The care verdict is computed only for **Mine**: a declared incompatibility with the running DSH, or a plugin row that failed to load, marks the plugin **Needs care**; otherwise it is **Healthy** (with declared-range evaluation arriving in M1).
 - Official `@deepseek-ai/*` packages are part of DSH and never appear in the monitored list; the summary reports how many bundles and plugin entries were excluded, so nothing looks missing.
 - Warnings appear inline when a fact could not be read, for example when the plugin-manager service is not mounted. An unreadable value is reported as unknown with its reason, never guessed.
 
@@ -117,6 +119,9 @@ The Loader row accepts the following configuration (defaults shown):
 | `checkOnStartup` | `true` | Whether a compatibility check runs when the Host starts. |
 | `concurrency` | `2` | How many watched plugins one check may inspect at a time (clamped to 1–8). |
 | `worktreeRoot` | `""` | Directory under which upgrade worktrees are created; empty means beside the repository. |
+| `ownerHandles` | `""` | Comma-separated account handles that identify you (npm scope / GitHub login). Empty means auto-detect. |
+| `ownerEmails` | `""` | Comma-separated author emails that identify you, matched against a plugin's `author`. |
+| `autoDetectOwner` | `true` | Whether the `~/.gitconfig` name/email and the signed-in `gh` account may be used as identity. |
 
 ## Development
 
@@ -140,6 +145,7 @@ Before installing into a running profile, rebuild: a linked install serves `dist
 - **Compatibility verdicts are not implemented yet.** The Upkeep panel reports the load error DSH already recorded; deriving declared/runtime/projected compatibility arrives with M1.
 - **The client half is a separate load.** After changing `src/client.ts`, refresh the page; after changing Host code, restart the Harness so the module generation is replaced.
 - **A linked checkout serves `dist/`.** Run `npm run build` before installing or reloading, otherwise the new code will not appear.
+- **Ownership is inference, not an account system.** It reads package metadata and the git remote of local checkouts; when those do not identify you, the plugin stays `Unknown` and you can set `ownerHandles` explicitly. No repository is contacted to verify authorship.
 - **No push from the Host.** DSH does not push to the browser. The panel reads on open and on demand, which is a deliberate design choice, not a missing refresh.
 - **Version support.** Verified on DSH `0.2.2-rc.3`; the declared range is `>=0.2.2-rc.1 <0.3.0`. DSH is in a release-candidate cycle, so the range is a promise about the surface this plugin uses, not a claim about every build.
 

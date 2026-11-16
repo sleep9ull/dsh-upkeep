@@ -118,6 +118,7 @@ ELECTRON_RUN_AS_NODE=1 "$DSH_NODE_EXECUTABLE" "$DSH_INSTALL_DIR/lib/bin.js" --ve
 **能做什么**
 
 - **监测范围**：只监测第三方插件；`@deepseek-ai/*` 属于 DSH 自身、随 DSH 版本发布，排除在清单之外，并用 `excluded` 计数透明报告排除了多少 bundle / 条目（见 D13）。
+- **归属与维护结论**：对每个第三方 bundle 判定 `mine / other / unknown`（证据来自 scope、author、repository、本地 checkout 的 git remote，匹配本地身份），只有 `mine` 的插件才进入"是否需要维护"判定；每条结论带证据，未知不猜测（见 D14）。
 - 自动发现：`ctx.pluginManager.listBundles()` 给出已安装 bundle 的 `name/version/source/availability/update/rows[]/error`；逐行解析 `package.json` 得到 `engines.dsh` 与 DSH peer 依赖。
 - 三层判定：
   - **声明层**：插件 manifest 对 `running` 版本、对**目标版本**分别求值（后者用 `evaluatePluginCompatibility(manifest, {}, targetVersion)` 即可预测"新 DSH 发布后会不会坏"）。
@@ -201,6 +202,7 @@ ELECTRON_RUN_AS_NODE=1 "$DSH_NODE_EXECUTABLE" "$DSH_INSTALL_DIR/lib/bin.js" --ve
 | D11 | **自身兼容声明** | 写宽 `engines.dsh`（如 `>=0.2.2-rc.1 <0.3.0`），peer 只声明真正共享的包；发布前跑跨版本矩阵 | `engines.dsh` 一旦存在就独占判定，能防止 peer 把自己锁死 |
 | D12 | **验证 oracle** | L1 静态 → L2 `--dump-config` → L3 `headless` 启动 → L4 跨版本实验台；逐级启用、逐级超时/降级 | 越往后越真实但越贵/越慢；默认跑 L1+L2，用户可选 L3/L4 |
 | D13 | **监测范围** | 排除 `@deepseek-ai/*`（DSH 自带包），并用 `excluded` 计数透明报告排除了多少 bundle / 条目 | 官方包随 DSH 版本发布，列入监测只会产生噪声；"排除了什么"必须可见，否则用户会以为漏了 |
+| D14 | **归属判定** | 只用证据判定 `mine/other/unknown`：包 scope、author、repository、本地 checkout 的 git remote，与本地身份（`ownerHandles`/`ownerEmails` 配置、`~/.gitconfig`、gh 登录）匹配；无信号就是 `unknown`；每条判定带证据 token | 产品问题是"**我的**插件要不要维护"；猜错会制造噪音或漏报，所以宁可显示未知并提供证据 |
 
 ---
 
@@ -515,6 +517,15 @@ idle
 - Host：`status` / `bundles.list` 过滤官方 bundle 与官方插件条目，返回 `excluded: { bundles, entries }`；工具描述同步说明。
 - Client：摘要区新增「已排除」计数行 + 一句规则说明，保持"排除了什么"可见。
 - 验证：新增单测覆盖"官方 bundle 不出现、`excluded` 计数正确"；真实 profile 重启后生效（Host 模块改动需重启 Harness）。
+
+### M0.3 归属识别与维护结论（2026-11-16）
+
+- 新模块 `src/host/owner.ts`：身份解析（配置 + `~/.gitconfig` + gh 登录）与归属判定（scope / author / author-email / repository / git remote），输出 `mine | other | unknown` + 证据 token。
+- `status` / `bundles.list` 每个 bundle 增加 `owner` 与 `maintenance`；`ownership` 汇总 `mine / other / unknown / needsMaintenance` 与匹配到的身份（handles + 来源）。
+- 维护判定（`mine` 才判定）：声明不兼容（`incompatible-version`）→ `attention`；插件行 `failed` → `attention`；`pending` → `attention`；无问题 → `ok`；运行态不可知 → `unknown`；非本人 → `not-mine`。
+- 配置新增 `ownerHandles` / `ownerEmails` / `autoDetectOwner`（默认自动探测）；无身份时给出警告并全部显示未知。
+- Client：摘要增加"我的插件 / 需维护 / 他人插件"，表格增加"归属 / 维护"两列，hover 显示证据与原因。
+- 验证：新增 owner 单测 7 条、归属+维护集成单测 1 条，共 25 个单测通过；真机需重启后生效。
 
 **真机发现（可直接作为 M1 第一批监测对象）**：当前 profile 已有两个真实的不兼容 bundle——
 

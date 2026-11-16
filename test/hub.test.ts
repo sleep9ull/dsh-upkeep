@@ -112,6 +112,45 @@ test('bundles.list projects the same bundle summaries', async () => {
   assert.equal(listed.excluded.bundles, 1)
 })
 
+test('ownership joins the local identity and decides which plugins need care', async () => {
+  const hub = createHub(fakeContext({
+    bundles: [
+      { name: '@sleep9ull/broken-plugin', version: '0.1.0', enabled: false, rows: [{ entryId: 'row-broken' }], error: { code: 'incompatible-version' } },
+      { name: '@sleep9ull/fine-plugin', version: '0.2.0', enabled: true, rows: [{ entryId: 'row-fine' }] },
+      { name: 'dsh-worktrace', version: '0.2.1', enabled: false, rows: [{ entryId: 'row-other' }] },
+    ],
+    plugins: [
+      { entryId: 'row-broken', moduleName: '@sleep9ull/broken-plugin', fiberPhase: 'failed' },
+      { entryId: 'row-fine', moduleName: '@sleep9ull/fine-plugin', fiberPhase: 'active' },
+      { entryId: 'row-other', moduleName: 'dsh-worktrace', fiberPhase: 'failed' },
+    ],
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false }))
+
+  const status = await hub.call('status', {}, { caller: 'client' }) as {
+    bundles: Array<{
+      name: string
+      owner: { status: string; evidence: string[] }
+      maintenance: { state: string; reasons: string[] }
+    }>
+    ownership: { mine: number; other: number; unknown: number; needsMaintenance: number; identity: { handles: string[]; sources: string[] } }
+  }
+  const byName = Object.fromEntries(status.bundles.map(bundle => [bundle.name, bundle]))
+
+  assert.equal(byName['@sleep9ull/broken-plugin']?.owner.status, 'mine')
+  assert.equal(byName['@sleep9ull/broken-plugin']?.maintenance.state, 'attention')
+  assert.match((byName['@sleep9ull/broken-plugin']?.maintenance.reasons ?? []).join('; '), /incompatible/)
+  assert.equal(byName['@sleep9ull/fine-plugin']?.owner.status, 'mine')
+  assert.equal(byName['@sleep9ull/fine-plugin']?.maintenance.state, 'ok')
+  assert.equal(byName['dsh-worktrace']?.owner.status, 'unknown')
+  assert.equal(byName['dsh-worktrace']?.maintenance.state, 'not-mine')
+
+  assert.equal(status.ownership.mine, 2)
+  assert.equal(status.ownership.unknown, 1)
+  assert.equal(status.ownership.needsMaintenance, 1)
+  assert.deepEqual(status.ownership.identity.handles, ['sleep9ull'])
+  assert.deepEqual(status.ownership.identity.sources, ['config'])
+})
+
 test('unknown actions fail with a stable code', async () => {
   const hub = createHub(fakeContext(), normalizeConfig(undefined))
   await assert.rejects(

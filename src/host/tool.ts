@@ -16,9 +16,9 @@ export const TOOL_NAME = 'upkeep_status'
 
 const DESCRIPTION = `Read the upkeep status of this DeepSeek Harness installation.
 
-Returns the running DSH version, the current profile, and every monitored bundle with its version, whether it is enabled, where it comes from, and the load error the plugin manager recorded. Use it before suggesting a plugin upgrade or investigating why a plugin is not running.
+Returns the running DSH version, the current profile, and every monitored bundle with its version, whether it is enabled, where it comes from, and the load error the plugin manager recorded. Each bundle also carries an ownership verdict and the evidence behind it: \`mine\`, \`other\` or \`unknown\`, matched against the local author identity (\`ownerHandles\` configuration, the developer's git configuration and GitHub login). For \`mine\` bundles it reports a maintenance verdict — \`attention\`, \`ok\`, \`unknown\` or \`not-mine\` — with reasons when the plugin is declared incompatible with the running DSH or one of its rows failed to load.
 
-Official @deepseek-ai packages are excluded from the monitored list: they ship with DSH and follow its version. The result reports how many bundles and plugin entries were left out under \`excluded\`.
+Use it before suggesting a plugin upgrade or investigating why a plugin is not running. Official @deepseek-ai packages are excluded from the monitored list: they ship with DSH and follow its version. The result reports how many bundles and plugin entries were left out under \`excluded\`.
 
 Read-only: it never installs, enables, edits, or contacts the network.`
 

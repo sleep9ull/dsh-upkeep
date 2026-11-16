@@ -8,7 +8,7 @@
 
 | 何时读 | 文档 |
 |---|---|
-| 要改**范围、优先级、验收标准**，或怀疑某个设计决定 | [docs/PLAN.md](docs/PLAN.md) —— 范围与设计决策（D1–D13）的唯一来源；改范围先改这里 |
+| 要改**范围、优先级、验收标准**，或怀疑某个设计决定 | [docs/PLAN.md](docs/PLAN.md) —— 范围与设计决策（D1–D14）的唯一来源；改范围先改这里 |
 | 要断言**任何 DSH 行为**（服务、事件、字段、版本语义、CLI 参数） | [docs/EVIDENCE.md](docs/EVIDENCE.md) —— 已核实事实；新结论先补证据再写代码 |
 | 要改 **Host↔Client 线协议**（路由、信封、错误码） | [src/host/rpc.ts](src/host/rpc.ts) 头部注释 —— 线协议当前权威；若它长大到需要独立文件，拆成 `docs/CONTRACT.md` 并在两处同步 |
 | 要新增/修改 **Host 插件面**（manifest、patch、locale、icon、导出） | `dsh-doc` 技能的 `references/host-plugin.md`、`references/ui-plugin.md`、`references/plugin-development.md` |
@@ -31,6 +31,7 @@
 | `src/host/tool.ts` | 模型适配器：`upkeep_status` 工具，同一 Hub；写操作将来经 `tools/pre-execute` 走审批。 |
 | `src/host/types.ts` | 对 Harness 服务的**结构化类型**（`ctx.get(...)` 防御式读取），不 import 内部包。 |
 | `src/host/versions.ts` | semver 解析/比较（含 prerelease 优先级）；M1 的通道与目标版本模型建立在它上面。 |
+| `src/host/owner.ts` | 归属判定：从包 scope / author / repository / 本地 checkout 与 git remote 取证据，与本地身份（配置、`~/.gitconfig`、gh 登录）匹配，产出 `mine/other/unknown` + 证据 token。 |
 | `src/host/compat.ts` *(M1)* | vendor 的兼容判据，逐条对齐 DSH `plugin-compatibility.ts` 的语义。 |
 | `src/host/feed.ts` *(M1)* | 目标版本感知：npm packument + 通道模型 + 缓存/离线降级。 |
 | `src/host/state.ts` *(M1)* | `ctx.storage.domain` 持久化：`MonitorEntry`、`CompatReport`、`UpgradeRun`。 |
@@ -64,6 +65,7 @@
 11. **升级在会话里发生（M3+）。** 被测仓库的代码由会话中的 agent 编辑（可选 worktree）；Host 负责准备、验证、交付。已安装 profile 的 `node_modules` 是只读输入。*检查：* 升级运行记录带 `sessionId`；Host 代码没有直接写被测仓库源文件的路径。
 12. **不虚构兼容结论。** 声明层、运行层、历史层分开呈现；读不到就显示未知并附原因，三种状态不合并成一个布尔值。*检查：* 断网/缺服务时 UI 显示"未知 + 原因"而不是"兼容"。
 13. **监测范围排除官方包。** `@deepseek-ai/*` 属于 DSH 本身、随 DSH 版本走，不进监测列表；状态与工具结果用 `excluded` 报告排除了多少 bundle / 条目，而不是静默丢弃。*检查：* `bundles` 里没有该 scope 的项，且 `excluded` 的计数与 `listBundles` / `listPlugins` 的差值一致。
+14. **归属判定有证据、可配置、未知就是未知。** `mine/other/unknown` 只能由 `src/host/owner.ts` 产出；每条判定带证据 token（`scope:`、`author:`、`repo:`、`remote:`、`local-checkout`、`no-metadata`），身份来自 `ownerHandles`/`ownerEmails` 配置、`~/.gitconfig` 与 gh 登录；没有信号时保持 `unknown`，绝不默认"是我的"。*检查：* owner 单测覆盖四类证据与"无元数据不猜测"；无身份时状态带警告且 `ownership` 全为 unknown。
 
 ## 新增一个 operation
 

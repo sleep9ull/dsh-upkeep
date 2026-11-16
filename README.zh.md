@@ -24,7 +24,7 @@
 
 | 能力 | 状态 |
 |---|---|
-| 侧栏固定的 **Upkeep 面板**（与 Plugins 同级）+ **设置 → Plugins** 分页、状态快照、`upkeep_status` 工具 | **已交付（M0）** |
+| 侧栏固定的 **Upkeep 面板**（与 Plugins 同级）+ **设置 → Plugins** 分页、状态快照、归属与维护判定、`upkeep_status` 工具 | **已交付（M0）** |
 | 兼容性监测清单、声明层/运行层/前瞻层判定、历史记录 | 进行中（M1） |
 | 迁移指南匹配与单插件破坏报告 | 计划中（M2） |
 | 会话或 worktree 中的一键升级、分层验证 | 计划中（M3） |
@@ -65,7 +65,7 @@ dsh plugin --profile <profile> add /absolute/path/to/dsh-upkeep
 
 | 入口 | 作用 |
 |---|---|
-| **Upkeep 面板** | 左侧面板列表里固定的图标，与 **Plugins**、**Automation tasks** 同级。点击进入整页：运行中的 DSH 版本、当前 profile、插件条目数，以及每个已安装 bundle 的版本、状态、来源和加载错误。**刷新** 重新读取。 |
+| **Upkeep 面板** | 左侧面板列表里固定的图标，与 **Plugins**、**Automation tasks** 同级。点击进入整页：运行中的 DSH 版本、当前 profile、插件条目数，以及每个已安装 bundle 的版本、状态、归属与维护结论。**刷新** 重新读取。 |
 | **Upkeep 分页** | **设置 → Plugins → Upkeep** 显示同一视图，方便你在管理插件时就近查看；页头的「打开面板」直达一级面板。 |
 | **`upkeep_status` 工具** | 会话内的 agent 读取同一份快照；传 `action: "bundles.list"` 只取 bundle 列表。只读：不安装、不改文件、不联网。 |
 
@@ -75,7 +75,9 @@ dsh plugin --profile <profile> add /absolute/path/to/dsh-upkeep
 
 - 页头显示标题，以及唯一的按钮 **刷新**。
 - 摘要区显示运行中的 DSH 版本、profile 名称、活跃插件条目数、已安装 bundle 数。
-- bundle 表格逐行给出名称、版本、状态（已启用 / 已禁用 / 加载失败）、来源可用性与行数。
+- bundle 表格逐行给出名称、版本、状态（已启用 / 已禁用 / 加载失败）、**归属**（我的 / 他人 / 未知）与**维护**（需维护 / 正常 / 未知）。鼠标悬停在结论上可以看到判定依据。
+- 归属是**推断**而不是假设：用包的 scope、`author`、`repository`、本地 checkout 的 git remote，与你的身份匹配——插件配置里的 `ownerHandles` / `ownerEmails`，加上 `~/.gitconfig` 的 name/email 和已登录的 `gh` 账号。没有任何可识别信号的插件保持 **未知**。
+- 维护结论只对**我的**插件计算：与当前 DSH 声明不兼容、或某个插件行加载失败 → **需维护**；否则显示 **正常**（声明范围的前瞻判定随 M1 到来）。
 - 官方 `@deepseek-ai/*` 包属于 DSH 本身，不会出现在监测列表里；摘要区会说明排除了多少 bundle 与插件条目，不会让人以为漏了数据。
 - 某个事实读不到时，用行内提示说明原因（例如 plugin-manager 服务未挂载）。读不到的值显示为"未知 + 原因"，不做猜测。
 
@@ -117,6 +119,9 @@ Loader 行接受以下配置（括号内为默认值）：
 | `checkOnStartup` | `true` | Host 启动时是否执行一次兼容性检查。 |
 | `concurrency` | `2` | 一次检查里并发处理多少个被监测插件（限制在 1–8）。 |
 | `worktreeRoot` | `""` | 升级 worktree 的创建目录；留空表示放在仓库旁边的同级目录。 |
+| `ownerHandles` | `""` | 标识你本人的账号 handle（npm scope / GitHub 登录名），逗号分隔；留空表示自动探测。 |
+| `ownerEmails` | `""` | 标识你本人的作者邮箱，逗号分隔，与插件 `author` 匹配。 |
+| `autoDetectOwner` | `true` | 是否允许用 `~/.gitconfig` 的 name/email 与已登录的 `gh` 账号作为身份。 |
 
 ## 开发
 
@@ -140,6 +145,7 @@ npm run verify   # 两端类型检查、构建、运行单测、客户端脚本�
 - **兼容性判定尚未实现。** Upkeep 面板目前展示的是 DSH 已记录的加载错误；声明层/运行层/前瞻层判定随 M1 一起到来。
 - **客户端半是独立加载的。** 改完 `src/client.ts` 要刷新页面；改完 Host 代码要重启 Harness，让模块代际被替换。
 - **link 安装服务 `dist/`。** 安装或重新加载前先 `npm run build`，否则新代码不会出现。
+- **归属是推断，不是账号系统。** 它读取包元数据与本地 checkout 的 git remote；这些信息认不出你时，插件保持 **未知**，可以用 `ownerHandles` 显式指定。整个过程不会联网校验作者身份。
 - **Host 不会主动推送。** DSH 没有 Host→浏览器的推送通道；面板在打开时和点击时读取。这是有意设计，不是刷新坏了。
 - **版本支持。** 在 DSH `0.2.2-rc.3` 上验证；声明范围 `>=0.2.2-rc.1 <0.3.0`。DSH 正处于 rc 迭代期，这个范围是对本插件所用接口面的承诺，不是对每个构建的保证。
 
