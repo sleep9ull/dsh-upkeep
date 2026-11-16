@@ -164,6 +164,28 @@ export function scheduledTaskViews(entries: unknown[]): ScheduledTaskView[] {
   return views
 }
 
+/**
+ * Deliver one prompt to a fresh Session shortly from now.
+ *
+ * The workspace API only seeds an unsent draft, so this is how an upgrade task
+ * actually starts running: the schedule service creates the Session in the
+ * prepared directory and hands the prompt to its agent as user input.
+ */
+export async function createOneShotTask(
+  service: ScheduleServiceLike,
+  options: { title: string; prompt: string; cwd: string; delaySeconds?: number },
+): Promise<{ id: string | null; title: string }> {
+  const created = await service.create({
+    title: options.title,
+    prompt: options.prompt,
+    timing: { kind: 'after', after_seconds: Math.max(1, Math.round(options.delaySeconds ?? 1)) },
+    target: { kind: 'new_once', create: options.cwd.trim() === '' ? {} : { cwd: options.cwd } },
+  })
+  const id = isRecord(created) && typeof created.id === 'string' ? created.id : null
+  const title = isRecord(created) && typeof created.title === 'string' ? created.title : options.title
+  return { id, title }
+}
+
 /** List the tasks this plugin created, newest fields preserved as-is. */
 export async function listUpkeepTasks(service: ScheduleServiceLike): Promise<Array<{
   id: string | null

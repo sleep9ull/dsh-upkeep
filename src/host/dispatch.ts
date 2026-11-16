@@ -48,6 +48,7 @@ import { summarizeMatches, matchGuides, type ImpactSummary, type GuideMatch } fr
 import { scanSurfaces, type SurfaceInventory } from './surfaces.js'
 import { createExecRunner, type ExecRunner } from './exec.js'
 import {
+  createOneShotTask,
   createUpkeepTask,
   isKnownTimeZone,
   listUpkeepTasks,
@@ -916,8 +917,35 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
         const current = readState(home)
         writeState(home, appendRun(current, run, config.runsToKeep))
         const warnings = [...loaded.warnings, ...analysis.warnings, ...prepared.warnings]
+
+        // Start the work immediately: the workspace API only seeds a draft, so the
+        // prompt is delivered to a fresh Session in the prepared directory instead.
+        let autoStarted = false
+        const scheduler = scheduleService(ctx)
+        if (scheduler !== undefined) {
+          try {
+            await createOneShotTask(scheduler, {
+              title: `Upkeep upgrade: ${name}`,
+              prompt,
+              cwd: prepared.workspacePath,
+            })
+            autoStarted = true
+          } catch (error) {
+            warnings.push(`The upgrade session could not be started automatically (${error instanceof Error ? error.message : String(error)}); open the workspace and send the prompt yourself.`)
+          }
+        } else {
+          warnings.push('The schedule service is not mounted, so the upgrade session was not started automatically; open the workspace and send the prompt yourself.')
+        }
         if (repo.dirty > 0) warnings.push(`The repository has ${repo.dirty} uncommitted change(s); the worktree starts from HEAD.`)
-        return { run, from: status.dsh.runtimeVersion, to: status.target.version, matches: analysis.matches, verifyCommands, warnings }
+        return {
+          run,
+          from: status.dsh.runtimeVersion,
+          to: status.target.version,
+          matches: analysis.matches,
+          verifyCommands,
+          warnings,
+          autoStarted,
+        }
       }),
     },
     'upgrade.verify': {

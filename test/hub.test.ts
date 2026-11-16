@@ -591,3 +591,89 @@ test('schedule.create at a chosen time makes a daily task in that zone', async (
     (error: unknown) => (error as { code?: string }).code === 'INVALID_INPUT',
   )
 })
+
+test('preparing an upgrade starts it through a one-shot task in the prepared directory', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-auto-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-auto-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-auto-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(join(packageDir, 'src'), { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
+    name: '@sleep9ull/plugin', version: '1.0.0', engines: { dsh: '^0.2.2-rc.1' }, scripts: { test: 'node --version' },
+  }))
+  writeFileSync(join(packageDir, 'src', 'index.js'), 'ctx.tools.register({})\n')
+
+  const requests: Array<Record<string, any>> = []
+  const schedule = {
+    create: async (request: unknown) => { requests.push(request as Record<string, any>); return { id: 'shot-1', title: 'Upkeep upgrade: @sleep9ull/plugin' } },
+    catalog: async () => [],
+  }
+  const exec = {
+    run: async (command: string, args: string[]) => {
+      if (command === 'git' && args[0] === 'rev-parse') return { exitCode: 0, stdout: packageDir + '\n', stderr: '', timedOut: false }
+      if (command === 'git' && args[0] === 'status') return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
+      if (command === 'git' && args[0] === 'worktree') return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
+    },
+  }
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [], source: 'link:' + packageDir }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+    schedule,
+    workspaceRegistry: { create: async (path: string, title: string) => ({ id: 'ws-1', path, title }) },
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false, targetVersion: '0.2.2-rc.3', verifyCommands: ['npm test'] }), {
+    home, startupCheck: false, now: () => 9_000, exec,
+  })
+
+  const prepared = await hub.call('upgrade.prepare', { bundle: '@sleep9ull/plugin', worktree: true, confirm: true }, { caller: 'client' }) as {
+    run: { id: string; prompt: string; workspacePath: string }
+    autoStarted: boolean
+    warnings: string[]
+  }
+
+  assert.equal(prepared.autoStarted, true)
+  assert.equal(requests.length, 1)
+  const request = requests[0] ?? {}
+  assert.equal(request.title, 'Upkeep upgrade: @sleep9ull/plugin')
+  assert.equal(request.prompt, prepared.run.prompt, 'the delivered prompt is the prepared one')
+  assert.deepEqual(request.timing, { kind: 'after', after_seconds: 1 })
+  assert.equal(request.target.kind, 'new_once')
+  assert.equal(request.target.create.cwd, prepared.run.workspacePath, 'the session opens in the prepared directory')
+})
+
+test('without the schedule service the upgrade falls back to an unsent draft', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-nofire-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-nofire-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-nofire-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(join(packageDir, 'src'), { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: '@sleep9ull/plugin', version: '1.0.0', engines: { dsh: '^0.2.2-rc.1' } }))
+  writeFileSync(join(packageDir, 'src', 'index.js'), 'void 0\n')
+
+  const exec = {
+    run: async (command: string, args: string[]) => {
+      if (command === 'git' && args[0] === 'rev-parse') return { exitCode: 0, stdout: packageDir + '\n', stderr: '', timedOut: false }
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
+    },
+  }
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [], source: 'link:' + packageDir }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+    workspaceRegistry: { create: async (path: string, title: string) => ({ id: 'ws-1', path, title }) },
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false, targetVersion: '0.2.2-rc.3' }), {
+    home, startupCheck: false, now: () => 10_000, exec,
+  })
+
+  const prepared = await hub.call('upgrade.prepare', { bundle: '@sleep9ull/plugin', confirm: true }, { caller: 'client' }) as {
+    autoStarted: boolean
+    warnings: string[]
+  }
+  assert.equal(prepared.autoStarted, false)
+  assert.ok(prepared.warnings.some(warning => /not started automatically/.test(warning)))
+})

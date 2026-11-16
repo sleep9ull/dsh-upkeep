@@ -321,6 +321,7 @@ interface Window {
         upgrading: 'Preparing…',
         upgradeFailed: 'The upgrade could not be prepared.',
         preparedNotice: 'Upgrade task prepared for {bundle}; the session is open with the prompt.',
+        preparedStarted: 'Upgrade started for {bundle}: the session opens in a moment and the prompt runs on its own.',
         verifyNow: 'Verify',
         verifyResult: 'Verification: {ok}/{total} commands passed.',
         verifyNone: 'No verification commands ran.',
@@ -412,6 +413,7 @@ interface Window {
         upgrading: '准备中…',
         upgradeFailed: '无法准备升级。',
         preparedNotice: '已为 {bundle} 准备升级任务，会话已带着提示词打开。',
+        preparedStarted: '已为 {bundle} 启动升级：会话稍后自动打开并开始执行提示词。',
         verifyNow: '验证',
         verifyResult: '验证结果：{ok}/{total} 个命令通过。',
         verifyNone: '没有可运行的验证命令。',
@@ -638,6 +640,7 @@ interface Window {
             const value = answer.value as {
               run?: { id?: string; workspaceId?: string; prompt?: string }
               warnings?: unknown
+              autoStarted?: boolean
             } | null
             const warnings = noticeWarnings(value === null ? undefined : value.warnings)
             const run = value && value.run ? value.run : null
@@ -645,16 +648,21 @@ interface Window {
               publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'error', text: t('upgradeFailed') } })
               return
             }
-            try {
-              ctx.uiWorkspace.startSession(run.workspaceId, { prompt: run.prompt })
-            } catch {
-              // The shell may be mid-reload; the run is stored either way.
+            // The Host already delivered the prompt to a fresh session; only fall
+            // back to an unsent draft when that was not possible.
+            const autoStarted = value !== null && value.autoStarted === true
+            if (!autoStarted) {
+              try {
+                ctx.uiWorkspace.startSession(run.workspaceId, { prompt: run.prompt })
+              } catch {
+                // The shell may be mid-reload; the run is stored either way.
+              }
             }
             publish({
               phase: 'ready',
               data: state.data,
               error: null,
-              notice: { kind: 'ok', text: t('preparedNotice', { bundle }), runId: run.id, ...(warnings.length === 0 ? {} : { warnings }) },
+              notice: { kind: 'ok', text: autoStarted ? t('preparedStarted', { bundle }) : t('preparedNotice', { bundle }), runId: run.id, ...(warnings.length === 0 ? {} : { warnings }) },
             })
           } finally {
             running = false
