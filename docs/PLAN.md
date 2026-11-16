@@ -588,7 +588,7 @@ idle
 - **能力探测**：快照新增 `capabilities`（schedule / workspaceRegistry），面板在服务缺失时禁用对应按钮并给出说明；`SCHEDULE_UNAVAILABLE` / `WORKSPACE_UNAVAILABLE` 保持显式降级。
 - **配置契约**：`test/config.test.ts` 覆盖全部配置默认值与边界（target 通道、TTL、保留条数、runs、base 分支、allowMerge、schedule、owner 列表、verifyCommands 多行解析）。
 - **i18n 契约**：manifest 测试比较 en / zh 字典键集合，防止文案单边漂移。
-- **发布元数据**：版本升至 `0.6.0`，新增 `CHANGELOG.md`（M1–M6 摘要），`files` 纳入变更记录与脚本。
+- **发布元数据**：`0.1.0` → `0.1.2`（M1–M6 这一批改动合成一个补丁版本，不按里程碑跳大版本），新增 `CHANGELOG.md`（M1–M6 摘要），`files` 纳入变更记录与脚本。
 - **可重复全量测试**：`scripts/full-test.mjs` + `npm run verify:full`——单测/契约 → 包元数据 → `dsh --profile desktop --dump-config` 组合配置（确认 upkeep row 进入 Loader）→ 真实 npm registry 目标版本读取；环境不支持时标记 `skipped` 而不是静默通过。
 - 测试：70 个单测通过；全量脚本结果见下。
 
