@@ -50,7 +50,7 @@ Use the profile that runs your Web UI (`web` for an npm install, `desktop` for t
 
 | Entry | What it does |
 |---|---|
-| **Upkeep panel** | A fixed icon in the left sidebar panel list, level with **Plugins** and **Automation tasks**. One sentence at the top answers the maintenance question; below it is a ledger of every monitored plugin — its version and one status column (Healthy / Needs care / Unknown, or the live state for other authors' plugins). The live enabled flag, entry count, install spec and compatibility requirements live in the row tooltip. The sidebar glyph itself carries a red count of the plugins that need care, and nothing at all when everything is healthy. |
+| **Upkeep panel** | A fixed icon in the left sidebar panel list, level with **Plugins** and **Automation tasks**. One sentence at the top answers the maintenance question; below it is a ledger of every monitored plugin — its version and one status column (Healthy / Needs care / Unknown, or the live state for other authors' plugins). The live enabled flag, entry count, install spec and compatibility requirements live in the row tooltip. The sidebar entry gains a parenthetical count whenever something needs care — `Upkeep (2 need care)` — and stays bare while everything is healthy. |
 | **Settings → Plugins → Upkeep** | The same view from the plugin manager page, with a shortcut to the full panel. |
 | **`upkeep_status` tool** | What the model sees: the same snapshot, plus `check`, `bundles.list` and `report.get` actions for the matched migration items. |
 | **Check now** | Refreshes the target DSH version from the registry, evaluates every plugin against the running and target release, scans the guides, and stores one report. |

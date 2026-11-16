@@ -255,6 +255,8 @@ interface Window {
         statusCareSingle: 'One of your {mine} plugins needs care.',
         statusCareMany: '{care} of your {mine} plugins need care.',
         statusNoMine: 'No plugin here is recognized as yours yet.',
+        labelCareOne: '1 needs care',
+        labelCareMany: '{count} need care',
         pluginVersion: 'Upkeep',
         dshVersion: 'DSH',
         profile: 'Profile',
@@ -330,6 +332,8 @@ interface Window {
         statusCareSingle: '你的 {mine} 个插件中有 1 个需要维护。',
         statusCareMany: '你的 {mine} 个插件中有 {care} 个需要维护。',
         statusNoMine: '还没有识别到属于你的插件。',
+        labelCareOne: '1 个需维护',
+        labelCareMany: '{count} 个需维护',
         pluginVersion: 'Upkeep',
         dshVersion: 'DSH',
         profile: 'Profile',
@@ -392,18 +396,8 @@ interface Window {
       }
 
       /**
-       * Styles for the sidebar glyph. They cannot live in the panel stylesheet:
-       * the icon renders in the sidebar, outside [data-upkeep], and the panel may
-       * never be opened.
-       */
-      const ICON_CSS = `
-.dsh-upkeep-glyph { position: relative; display: inline-flex; align-items: center; justify-content: center; }
-.dsh-upkeep-count { position: absolute; top: -4px; right: -6px; min-width: 13px; height: 13px; padding: 0 3px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; background: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-bg-base); box-shadow: 0 0 0 1.5px var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-base)); font-size: 9px; font-weight: 600; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; pointer-events: none; }
-`
-
-      /**
        * The one number the sidebar shows: how many of the author's plugins need
-       * care. The panel reads the same helper, so the badge and the ledger cannot
+       * care. The panel reads the same helper, so the pendingCare and the ledger cannot
        * disagree.
        */
       function careCountOf(snapshot: StatusSnapshot | null): number {
@@ -422,20 +416,11 @@ interface Window {
        * mounted. Reads are pull-only: the glyph asks for one status snapshot when
        * it first mounts, and every later publish follows the panel's own reads.
        */
-      const badge = {
+      const pendingCare = {
         count: 0,
-        listeners: new Set<() => void>(),
         ensure: null as (() => void) | null,
         get(): number { return this.count },
-        set(next: number): void {
-          if (next === this.count) return
-          this.count = next
-          for (const listener of [...this.listeners]) listener()
-        },
-        subscribe(listener: () => void): () => void {
-          this.listeners.add(listener)
-          return () => { this.listeners.delete(listener) }
-        },
+        set(next: number): void { this.count = next },
       }
 
       const CSS = `
@@ -1074,25 +1059,14 @@ interface Window {
       }
 
       /** The sidebar panel glyph: a shield with two cycle arrows, drawn in the host's text color. */
-      /** Subscribe to the badge count; the glyph requests one status read on mount. */
-      function useCareCount(): number {
-        const [count, setCount] = React.useState<number>(() => badge.get())
-        React.useEffect(() => {
-          const unsubscribe = badge.subscribe(() => setCount(badge.get()))
-          setCount(badge.get())
-          if (badge.ensure !== null) badge.ensure()
-          return unsubscribe
-        }, [])
-        return count
-      }
-
       function PanelIcon(props: { size?: number; active?: boolean }): Child {
         const size = typeof props.size === 'number' && props.size > 0 ? props.size : 18
         const opacity = props.active === true ? '1' : '0.88'
-        const count = useCareCount()
-        return h('span', { className: 'dsh-upkeep-glyph' },
-          h('style', null, ICON_CSS),
-          h('svg', {
+        // The count lives in the sidebar label; the glyph only triggers the first read.
+        React.useEffect(() => {
+          if (pendingCare.ensure !== null) pendingCare.ensure()
+        }, [])
+        return h('svg', {
           width: String(size),
           height: String(size),
           viewBox: '0 0 24 24',
@@ -1134,10 +1108,7 @@ interface Window {
             'stroke-linecap': 'round',
             'stroke-linejoin': 'round',
             opacity: '0.65',
-          })),
-          count > 0
-            ? h('span', { className: 'dsh-upkeep-count', 'aria-hidden': 'true' }, count > 99 ? '99+' : String(count))
-            : null)
+          }))
       }
 
       /* ------------------------------------------------------------------ *
@@ -1148,18 +1119,18 @@ interface Window {
         const t = ctx.locale.bind(NS)
         const store = createStore(ctx, t)
 
-        // The sidebar glyph lives outside the panel, so the badge mirrors the same
+        // The sidebar glyph lives outside the panel, so the pendingCare mirrors the same
         // store instead of owning a second source.
         ctx.effect(() => {
-          const push = (): void => { badge.set(careCountOf(store.get().data)) }
+          const push = (): void => { pendingCare.set(careCountOf(store.get().data)) }
           push()
           const unsubscribe = store.subscribe(push)
-          badge.ensure = () => { if (store.get().phase === 'idle') void store.refresh() }
+          pendingCare.ensure = () => { if (store.get().phase === 'idle') void store.refresh() }
           return () => {
             unsubscribe()
-            badge.ensure = null
+            pendingCare.ensure = null
           }
-        }, 'upkeep: sidebar badge')
+        }, 'upkeep: sidebar pendingCare')
 
         const openPanel = (): void => {
           try {
@@ -1177,7 +1148,11 @@ interface Window {
           name: 'sidebar.panellist',
           id: PANEL_ID,
           order: 30,
-          label: () => t('panel'),
+          label: () => {
+            const count = pendingCare.get()
+            if (count <= 0) return t('panel')
+            return t('panel') + ' (' + (count === 1 ? t('labelCareOne') : t('labelCareMany', { count })) + ')'
+          },
           locale: NS,
         }, PanelIcon), 'upkeep: sidebar panel icon')
 

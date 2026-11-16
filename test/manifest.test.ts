@@ -94,9 +94,10 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   // One status column: the live enabled flag moved into the row tooltip.
   assert.doesNotMatch(client, /t\('state'\)/)
   assert.match(client, /h\('th', \{ key: 'status' \}, t\('status'\)\)/)
-  // The sidebar glyph shows the pending-care count, fed by the same helper as the panel.
-  assert.match(client, /dsh-upkeep-count/)
+  // The sidebar label carries the pending-care count; the glyph stays decorative.
   assert.match(client, /function careCountOf/)
+  assert.match(client, /labelCareMany/)
+  assert.doesNotMatch(client, /dsh-upkeep-count/)
   assert.match(client, /const careCount = careCountOf\(data\)/)
 })
 
