@@ -11,7 +11,7 @@ type PostChildren = Child | Child[]
 /** The slice of a DOM event the panel reads. */
 type UiEvent = {
   key?: string
-  target?: { value?: string }
+  target?: { value?: string; checked?: boolean }
   currentTarget?: unknown
   stopPropagation?: () => void
 }
@@ -324,8 +324,10 @@ interface Window {
         breaksOn: 'breaks on',
         breakingChanges: 'breaking changes',
         upgrade: 'Upgrade',
-        upgradeConfirm: 'Prepare a targeted upgrade for {bundle}?',
-        worktreeConfirm: 'Edit in a separate git worktree instead of the checkout?',
+        upgradeTitle: 'Prepare a targeted upgrade',
+        worktreeOption: 'Edit in a separate git worktree',
+        upgradeHint: 'Upkeep matches the migration guides, prepares the workspace, and opens a session with a prompt naming the exact changes. Nothing is committed or pushed.',
+        prepare: 'Prepare',
         upgrading: 'Preparing…',
         upgradeFailed: 'The upgrade could not be prepared.',
         preparedNotice: 'Upgrade task prepared for {bundle}; the session is open with the prompt.',
@@ -414,8 +416,10 @@ interface Window {
         breaksOn: '将在',
         breakingChanges: '破坏性变更',
         upgrade: '升级',
-        upgradeConfirm: '为 {bundle} 准备一次定向升级？',
-        worktreeConfirm: '在独立的 git worktree 中修改（而不是当前 checkout）？',
+        upgradeTitle: '准备一次定向升级',
+        worktreeOption: '在独立的 git worktree 中修改',
+        upgradeHint: 'Upkeep 会匹配迁移指南、准备工作区，并打开一个点名具体变更的会话提示词。不会提交或推送。',
+        prepare: '准备',
         upgrading: '准备中…',
         upgradeFailed: '无法准备升级。',
         preparedNotice: '已为 {bundle} 准备升级任务，会话已带着提示词打开。',
@@ -503,6 +507,8 @@ interface Window {
 [data-upkeep] .upkeep-modal { display: flex; flex-direction: column; gap: 10px; width: min(360px, 100%); padding: 18px 18px 16px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-lg, 10px); background: var(--dsw-alias-bg-overlay); box-shadow: 0 16px 40px color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent); }
 [data-upkeep] .upkeep-modal-title { margin: 0; font-size: 13px; font-weight: 600; }
 [data-upkeep] .upkeep-modal-line { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 11px; overflow-wrap: anywhere; }
+[data-upkeep] .upkeep-modal-check { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+[data-upkeep] .upkeep-modal-check input { margin: 0; }
 [data-upkeep] .upkeep-modal-field { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
 [data-upkeep] .upkeep-modal-hint { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 10.5px; line-height: 1.5; }
 [data-upkeep] .upkeep-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
@@ -1099,6 +1105,8 @@ interface Window {
                 }))
         }
 
+        const [upgradeTarget, setUpgradeTarget] = React.useState<{ name: string; worktree: boolean } | null>(null)
+
         /** Open the modal for one plugin, seeded with the default time. */
         const requestSchedule = (bundle: BundleSummary): void => {
           const name = bundle.name || ''
@@ -1160,12 +1168,21 @@ interface Window {
                     onClick: saveSchedule,
                   }, t('create')))))
 
+        /** Open the preparation dialog for one plugin. */
         const requestUpgrade = (bundle: BundleSummary): void => {
           const name = bundle.name || ''
           if (name === '') return
-          if (typeof window.confirm === 'function' && !window.confirm(t('upgradeConfirm', { bundle: name }))) return
-          const worktree = typeof window.confirm === 'function' ? window.confirm(t('worktreeConfirm')) : false
-          void store.upgrade(name, worktree)
+          setUpgradeTarget({ name, worktree: false })
+        }
+
+        const closeUpgrade = (): void => setUpgradeTarget(null)
+
+        /** Start preparing the upgrade with the chosen workspace mode. */
+        const startUpgrade = (): void => {
+          if (upgradeTarget === null) return
+          const target = upgradeTarget
+          setUpgradeTarget(null)
+          void store.upgrade(target.name, target.worktree)
         }
 
         const targetVersion = data && data.target && data.target.version ? data.target.version : null
@@ -1201,6 +1218,45 @@ interface Window {
             onClick: () => { void store.check() },
           }, state.phase === 'checking' ? t('refreshing') : state.phase === 'upgrading' ? t('upgrading') : t('refresh')),
         )
+
+        /** The upgrade preparation dialog; the same shell as the schedule one. */
+        const upgradeModal = upgradeTarget === null
+          ? null
+          : h('div', {
+              className: 'upkeep-modal-backdrop',
+              onClick: (event: UiEvent) => {
+                if (event.target === event.currentTarget) closeUpgrade()
+              },
+            },
+              h('div', {
+                className: 'upkeep-modal',
+                role: 'dialog',
+                'aria-modal': 'true',
+                'aria-labelledby': 'upkeep-upgrade-title',
+                onKeyDown: (event: UiEvent) => { if (event.key === 'Escape') closeUpgrade() },
+              },
+                h('h4', { className: 'upkeep-modal-title', id: 'upkeep-upgrade-title' }, t('upgradeTitle')),
+                h('p', { className: 'upkeep-modal-line' }, upgradeTarget.name),
+                h('label', { className: 'upkeep-modal-check' },
+                  h('input', {
+                    type: 'checkbox',
+                    checked: upgradeTarget.worktree,
+                    onChange: (event: UiEvent) => {
+                      if (upgradeTarget === null) return
+                      setUpgradeTarget({ name: upgradeTarget.name, worktree: event.target?.checked === true })
+                    },
+                  }),
+                  h('span', null, t('worktreeOption'))),
+                h('p', { className: 'upkeep-modal-hint' }, t('upgradeHint')),
+                h('div', { className: 'upkeep-modal-actions' },
+                  h('button', { className: 'upkeep-btn', type: 'button', onClick: closeUpgrade }, t('cancel')),
+                  h('button', {
+                    className: 'upkeep-btn',
+                    type: 'button',
+                    'data-variant': 'primary',
+                    disabled: busy,
+                    onClick: startUpgrade,
+                  }, t('prepare')))))
 
         return h('div', {
           'data-upkeep': '',
@@ -1255,7 +1311,8 @@ interface Window {
               : null,
             groups,
             footer,
-            scheduleModal))
+            scheduleModal,
+            upgradeModal))
       }
 
       function TabBody(props: TabProps): Child {
