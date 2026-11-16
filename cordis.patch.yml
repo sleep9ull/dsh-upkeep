@@ -17,3 +17,8 @@
         ownerHandles: ""
         ownerEmails: ""
         autoDetectOwner: true
+        # Empty means "ask the npm registry which DSH release to compare against".
+        # Set an exact version to pin the comparison target offline.
+        targetVersion: ""
+        feedTtlMinutes: 60
+        checksToKeep: 20

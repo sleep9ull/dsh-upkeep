@@ -76,6 +76,9 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   assert.match(client, /upkeep-meta/)
   assert.match(client, /upkeep-footer/)
   assert.match(client, /upkeep-table-scroll/)
+  // M1: the panel can refresh the target from the registry and store a report.
+  assert.match(client, /checkNow/)
+  assert.match(client, /'check'/)
 })
 
 test('both READMEs exist, link to each other, and ship with their license', () => {

@@ -1,17 +1,26 @@
 import { strict as assert } from 'node:assert'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { createHub, normalizeConfig } from '../dist/host/dispatch.js'
+import { readState } from '../dist/host/state.js'
 import type { HostContext } from '../dist/host/types.js'
 
+/** One throwaway home for the whole file: status must never touch the real one. */
+const TEST_HOME = mkdtempSync(join(tmpdir(), 'upkeep-hub-'))
+const TEST_DEPS = { home: TEST_HOME, startupCheck: false as const }
+
 /** A fake Host context exposing only the services a status read touches. */
-function fakeContext(overrides: { bundles?: unknown[]; plugins?: unknown[]; installAnchor?: string; failBundles?: boolean } = {}): HostContext {
+function fakeContext(overrides: { bundles?: unknown[]; plugins?: unknown[]; installAnchor?: string; profileDir?: string; home?: string; failBundles?: boolean } = {}): HostContext {
   return {
     get(name: string) {
       if (name === 'profileContext') {
         return {
           name: 'desktop',
-          dir: '/tmp/dsh-profile',
+          dir: overrides.profileDir ?? '/tmp/dsh-profile',
           installAnchor: overrides.installAnchor ?? new URL('../package.json', import.meta.url).pathname,
+          home: overrides.home ?? TEST_HOME,
         }
       }
       if (name === 'pluginManager') {
@@ -42,7 +51,7 @@ test('status reads the runtime version, profile and bundles', async () => {
       { name: '@example/a', version: '1.2.3', enabled: true, official: false, availability: 'profile', rows: [{}, {}] },
       { name: '@example/b', version: '0.1.0', enabled: false, official: true, availability: 'installation', rows: [], error: { code: 'incompatible-version', diagnostic: 'engines.dsh rejects 0.2.2-rc.3' } },
     ],
-  }), normalizeConfig(undefined))
+  }), normalizeConfig(undefined), TEST_DEPS)
 
   const status = await hub.call('status', {}, { caller: 'client' }) as {
     plugin: { version: string }
@@ -64,7 +73,7 @@ test('status reads the runtime version, profile and bundles', async () => {
 })
 
 test('status degrades with warnings instead of throwing', async () => {
-  const hub = createHub(fakeContext({ failBundles: true }), normalizeConfig(undefined))
+  const hub = createHub(fakeContext({ failBundles: true }), normalizeConfig(undefined), TEST_DEPS)
   const status = await hub.call('status', {}, { caller: 'tool' }) as { bundles: unknown[]; warnings: string[] }
   assert.equal(status.bundles.length, 0)
   assert.equal(status.warnings.length, 1)
@@ -82,7 +91,7 @@ test('official @deepseek-ai packages are excluded and reported, not silently dro
       { moduleName: '@deepseek-ai/dsh-web' },
       { moduleName: 'dsh-context' },
     ],
-  }), normalizeConfig(undefined))
+  }), normalizeConfig(undefined), TEST_DEPS)
 
   const status = await hub.call('status', {}, { caller: 'client' }) as {
     bundles: Array<{ name: string }>
@@ -103,7 +112,7 @@ test('bundles.list projects the same bundle summaries', async () => {
       { name: '@example/a', version: '1.0.0', enabled: true, rows: [] },
       { name: '@deepseek-ai/dsh-base', version: '0.2.2-rc.3', enabled: true, rows: [] },
     ],
-  }), normalizeConfig(undefined))
+  }), normalizeConfig(undefined), TEST_DEPS)
   const listed = await hub.call('bundles.list', {}, { caller: 'client' }) as {
     bundles: Array<{ name: string }>
     excluded: { bundles: number; entries: number }
@@ -152,9 +161,65 @@ test('ownership joins the local identity and decides which plugins need care', a
 })
 
 test('unknown actions fail with a stable code', async () => {
-  const hub = createHub(fakeContext(), normalizeConfig(undefined))
+  const hub = createHub(fakeContext(), normalizeConfig(undefined), TEST_DEPS)
   await assert.rejects(
     () => hub.call('does.not.exist', {}, { caller: 'client' }),
     (error: unknown) => (error as { code?: string }).code === 'UNKNOWN_ACTION',
   )
+})
+
+
+test('check reads the registry, projects the target and stores one report', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-check-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(packageDir, { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
+    name: '@sleep9ull/plugin',
+    version: '1.0.0',
+    engines: { dsh: '>=0.2.2-rc.1 <0.2.3-rc.1' },
+  }))
+  const fetchImpl = (async () => new Response(JSON.stringify({
+    versions: { '0.2.2-rc.3': {}, '0.2.3-rc.1': {} },
+    'dist-tags': { next: '0.2.3-rc.1', latest: '0.2.2-rc.3' },
+  }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch
+
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [] }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false }), {
+    home, startupCheck: false, fetchImpl, now: () => 1_000,
+  })
+
+  const status = await hub.call('check', {}, { caller: 'client' }) as {
+    target: { version: string | null; channel: string | null; source: string }
+    bundles: Array<{
+      name: string
+      compat: { running: { status: string }; target: { status: string } | null }
+      maintenance: { state: string; reasons: string[] }
+    }>
+  }
+  assert.equal(status.target.version, '0.2.3-rc.1')
+  assert.equal(status.target.channel, 'next')
+  assert.equal(status.target.source, 'network')
+
+  const bundle = status.bundles[0]
+  assert.equal(bundle?.compat.running.status, 'compatible')
+  assert.equal(bundle?.compat.target?.status, 'incompatible')
+  assert.equal(bundle?.maintenance.state, 'attention')
+  assert.ok((bundle?.maintenance.reasons ?? []).some(reason => reason.includes('will break on 0.2.3-rc.1')))
+
+  const stored = readState(home)
+  assert.equal(stored.checks.length, 1)
+  assert.equal(stored.checks[0]?.targetVersion, '0.2.3-rc.1')
+  assert.equal(stored.feed?.channel, 'next')
+
+  // A later status read reuses the cached target without another fetch.
+  const cached = await hub.call('status', {}, { caller: 'client' }) as { target: { version: string | null; source: string } }
+  assert.equal(cached.target.version, '0.2.3-rc.1')
+  assert.equal(cached.target.source, 'cache')
 })

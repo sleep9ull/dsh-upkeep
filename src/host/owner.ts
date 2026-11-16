@@ -227,6 +227,49 @@ function factsFromManifest(name: string, manifest: unknown): PackageFacts {
 }
 
 /**
+ * Read one installed bundle's parsed manifest.
+ * @param name - the bundle's package name.
+ * @param source - the `source` spec `listBundles()` reports, when any.
+ * @param profileDir - the current profile directory.
+ * @param installAnchor - the running DSH manifest path, used as an extra resolution anchor.
+ * @returns the parsed manifest, or `undefined` when it cannot be read.
+ */
+export function readInstalledManifest(
+  name: string,
+  source: string | undefined,
+  profileDir: string | undefined,
+  installAnchor: string | undefined,
+): Record<string, unknown> | undefined {
+  const localPath = localPathFromSource(source, profileDir)
+  const candidates: string[] = []
+  if (localPath !== undefined) candidates.push(localPath)
+  if (profileDir !== undefined) candidates.push(profileDir)
+  if (installAnchor !== undefined) candidates.push(dirname(installAnchor))
+  for (const anchor of candidates) {
+    try {
+      const requireFrom = createRequire(join(anchor, 'package.json'))
+      const manifestPath = requireFrom.resolve(`${name}/package.json`)
+      const parsed: unknown = JSON.parse(readFileSync(manifestPath, 'utf8'))
+      if (isRecord(parsed)) return parsed
+    } catch {
+      // Try the next anchor.
+    }
+  }
+  if (localPath !== undefined) {
+    const manifest = readText(join(localPath, 'package.json'))
+    if (manifest !== undefined) {
+      try {
+        const parsed: unknown = JSON.parse(manifest)
+        if (isRecord(parsed)) return parsed
+      } catch {
+        // A malformed manifest is unreadable.
+      }
+    }
+  }
+  return undefined
+}
+
+/**
  * Read the facts for one installed bundle.
  * @param name - the bundle's package name.
  * @param source - the `source` spec `listBundles()` reports, when any.

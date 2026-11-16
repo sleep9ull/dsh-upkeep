@@ -54,6 +54,35 @@ type RpcFailure = { code: string; message: string }
 type OwnershipVerdict = { status?: 'mine' | 'other' | 'unknown'; evidence?: string[] }
 type MaintenanceVerdict = { state?: 'ok' | 'attention' | 'unknown' | 'not-mine'; reasons?: string[] }
 
+type EvaluationView = {
+  status?: 'compatible' | 'incompatible' | 'unknown'
+  requirements?: Record<string, string>
+  exempted?: boolean
+  reason?: string
+}
+
+type BundleCompat = {
+  running?: EvaluationView
+  target?: EvaluationView | null
+  runtime?: { failed?: number; pending?: number }
+}
+
+type TargetVersion = {
+  version?: string | null
+  channel?: string | null
+  fetchedAt?: number | null
+  source?: 'config' | 'network' | 'cache' | 'none'
+  stale?: boolean
+}
+
+type LastCheckView = {
+  at?: number
+  runtimeVersion?: string | null
+  targetVersion?: string | null
+  total?: number
+  needsCare?: number
+}
+
 type BundleSummary = {
   name?: string
   version?: string | null
@@ -65,6 +94,7 @@ type BundleSummary = {
   error?: { code?: string; diagnostic?: string | null } | null
   owner?: OwnershipVerdict
   maintenance?: MaintenanceVerdict
+  compat?: BundleCompat
 }
 
 type StatusSnapshot = {
@@ -72,6 +102,8 @@ type StatusSnapshot = {
   plugin?: { name?: string; version?: string }
   dsh?: { runtimeVersion?: string | null; installAnchor?: string | null }
   profile?: { name?: string | null; dir?: string | null }
+  target?: TargetVersion
+  lastCheck?: LastCheckView
   bundles?: BundleSummary[]
   plugins?: { entryCount?: number | null }
   excluded?: { bundles?: number; entries?: number }
@@ -85,12 +117,15 @@ type StatusSnapshot = {
   warnings?: string[]
 }
 
-type StorePhase = 'idle' | 'loading' | 'ready' | 'error'
+type StorePhase = 'idle' | 'loading' | 'checking' | 'ready' | 'error'
 type StoreState = { phase: StorePhase; data: StatusSnapshot | null; error: RpcFailure | null }
 type Store = {
   subscribe(listener: () => void): () => void
   get(): StoreState
+  /** Read the Host snapshot without touching the registry. */
   refresh(): Promise<void>
+  /** Refresh the target from the registry, evaluate, and store one report. */
+  check(): Promise<void>
 }
 
 /* ---- the Cordis services the plugin is applied to ---------------- */
@@ -218,6 +253,14 @@ interface Window {
         warnings: 'Warnings',
         notConnected: 'The panel is not connected to the Host yet.',
         retry: 'Retry',
+        checkNow: 'Check now',
+        checking: 'Checking…',
+        targetVersion: 'Target',
+        lastCheck: 'Last check',
+        notChecked: 'not checked yet',
+        cached: 'cached',
+        incompatible: 'incompatible',
+        breaksOn: 'breaks on',
       }
 
       const zh: Record<string, string> = {
@@ -266,6 +309,14 @@ interface Window {
         warnings: '提示',
         notConnected: '面板尚未连接到 Host。',
         retry: '重试',
+        checkNow: '立即检查',
+        checking: '检查中…',
+        targetVersion: '目标版本',
+        lastCheck: '上次检查',
+        notChecked: '尚未检查',
+        cached: '缓存',
+        incompatible: '不兼容',
+        breaksOn: '将在',
       }
 
       const CSS = `
@@ -376,24 +427,27 @@ interface Window {
           for (const listener of [...listeners]) listener()
         }
 
+        const read = async (action: 'status' | 'check', phase: 'loading' | 'checking'): Promise<void> => {
+          if (running) return
+          running = true
+          publish({ phase, data: state.data, error: null })
+          try {
+            const answer = await callHost(ctx, action)
+            if (answer.ok) publish({ phase: 'ready', data: answer.value as StatusSnapshot | null, error: null })
+            else publish({ phase: 'error', data: state.data, error: answer.error })
+          } finally {
+            running = false
+          }
+        }
+
         return {
           subscribe(listener: () => void) {
             listeners.add(listener)
             return () => { listeners.delete(listener) }
           },
           get() { return state },
-          async refresh() {
-            if (running) return
-            running = true
-            publish({ phase: 'loading', data: state.data, error: null })
-            try {
-              const answer = await callHost(ctx, 'status')
-              if (answer.ok) publish({ phase: 'ready', data: answer.value as StatusSnapshot | null, error: null })
-              else publish({ phase: 'error', data: state.data, error: answer.error })
-            } finally {
-              running = false
-            }
-          },
+          async refresh() { await read('status', 'loading') },
+          async check() { await read('check', 'checking') },
         }
       }
 
@@ -451,7 +505,7 @@ interface Window {
         bundles: BundleSummary[],
         t: Translate,
         emptyText: string,
-        options: { showCare: boolean },
+        options: { showCare: boolean; targetVersion: string | null },
       ): Child {
         if (bundles.length === 0) return h('div', { className: 'upkeep-empty' }, emptyText)
         const headers: Child[] = [
@@ -474,10 +528,19 @@ interface Window {
                 const ownershipEvidence = ownership && ownership.status !== 'mine' && Array.isArray(ownership.evidence)
                   ? ownership.evidence.join(' · ')
                   : ''
+                const compat = bundle.compat
+                const requirementText = (view: EvaluationView | null | undefined): string =>
+                  view && view.status === 'incompatible' && view.requirements
+                    ? Object.entries(view.requirements).map(([name, range]) => name + ' ' + range).join(', ')
+                    : ''
+                const runningText = requirementText(compat && compat.running)
+                const targetText = requirementText(compat && compat.target)
                 const detail = [
                   typeof bundle.rowCount === 'number' ? String(bundle.rowCount) + ' ' + t('entries') : '',
                   bundle.source || '',
                   ownershipEvidence,
+                  runningText === '' ? '' : t('incompatible') + ': ' + runningText,
+                  targetText === '' ? '' : t('breaksOn') + ' ' + (options.targetVersion ?? '') + ': ' + targetText,
                 ].filter(part => part !== '').join(' · ')
                 const cells: Child[] = [
                   h('td', { key: 'name', className: 'upkeep-name' },
@@ -534,6 +597,14 @@ interface Window {
         const facts: Child[] = []
         const runtimeVersion = data && data.dsh && data.dsh.runtimeVersion ? data.dsh.runtimeVersion : t('unknown')
         facts.push(h('span', { key: 'dsh' }, t('dshVersion') + ' ', h('b', null, runtimeVersion)))
+        const target = data && data.target ? data.target : null
+        const targetText = target && target.version
+          ? target.version + (target.channel ? ' (' + target.channel + ')' : '') + (target.stale ? ' · ' + t('cached') : '')
+          : t('notChecked')
+        facts.push(h('span', { key: 'target' }, t('targetVersion') + ' ', h('b', null, targetText)))
+        if (data && data.lastCheck && typeof data.lastCheck.at === 'number') {
+          facts.push(h('span', { key: 'last-check' }, t('lastCheck') + ' ', h('b', null, relativeTime(data.lastCheck.at, locale))))
+        }
         const profileName = data && data.profile && data.profile.name ? data.profile.name : t('unknown')
         facts.push(h('span', { key: 'profile' }, t('profile') + ' ', h('b', null, profileName)))
         facts.push(h('span', { key: 'bundles' }, t('bundles') + ' ', h('b', null, String(bundles.length))))
@@ -605,11 +676,12 @@ interface Window {
             collapsible && !open
               ? null
               : renderBundleTable(rows, t, emptyText, {
-                  
                   showCare: key === 'mine',
+                  targetVersion,
                 }))
         }
 
+        const targetVersion = data && data.target && data.target.version ? data.target.version : null
         const mineHint = careCount > 0 ? String(careCount) + ' ' + t('needsCare') : t('groupMineHint')
         const otherAuthorCount = otherBundles.filter(bundle => ownerOf(bundle) === 'other').length
         const unknownAuthorCount = otherBundles.filter(bundle => ownerOf(bundle) === 'unknown').length
@@ -627,14 +699,23 @@ interface Window {
                 onToggle: () => setOthersOpen((open: boolean) => !open),
               }))
 
+        const busy = loading || state.phase === 'checking'
         const actions = h('div', { className: 'upkeep-actions' },
           !page && openPanel
-            ? h('button', { className: 'upkeep-btn', type: 'button', 'data-variant': 'primary', onClick: openPanel }, t('openPanel'))
+            ? h('button', { className: 'upkeep-btn', type: 'button', onClick: openPanel }, t('openPanel'))
             : null,
           h('button', {
             className: 'upkeep-btn',
             type: 'button',
-            disabled: loading,
+            'data-variant': 'primary',
+            disabled: busy,
+            'aria-busy': state.phase === 'checking' ? 'true' : 'false',
+            onClick: () => { void store.check() },
+          }, state.phase === 'checking' ? t('checking') : t('checkNow')),
+          h('button', {
+            className: 'upkeep-btn',
+            type: 'button',
+            disabled: busy,
             'aria-busy': loading ? 'true' : 'false',
             onClick: () => { void store.refresh() },
           }, loading ? t('loading') : t('refresh')))

@@ -42,3 +42,40 @@ test('highestVersion picks the highest parseable entry', () => {
   assert.equal(highestVersion(['nope']), undefined)
   assert.equal(highestVersion([]), undefined)
 })
+
+import { satisfiesRange } from '../dist/host/versions.js'
+
+test('range satisfaction follows the DSH cases (includePrerelease)', () => {
+  // The running DSH and the published prereleases both participate.
+  assert.equal(satisfiesRange('0.2.2-rc.3', '>=0.2.2-rc.1 <0.3.0'), true)
+  assert.equal(satisfiesRange('0.2.2-rc.3', '>=0.2.2-rc.1 <0.2.2-rc.3'), false)
+  // A prerelease sorts before its release, so <0.2.2 still admits rc.3.
+  assert.equal(satisfiesRange('0.2.2-rc.3', '>=0.2.2-rc.1 <0.2.2'), true)
+  assert.equal(satisfiesRange('0.2.2-rc.3', '^0.2.2-rc.1'), true)
+  assert.equal(satisfiesRange('0.2.2', '^0.2.2-rc.1'), true)
+  assert.equal(satisfiesRange('0.3.0', '^0.2.2-rc.1'), false)
+})
+
+test('caret, tilde, x-ranges, partials, hyphens and unions', () => {
+  assert.equal(satisfiesRange('1.9.0', '^1.2.3'), true)
+  assert.equal(satisfiesRange('2.0.0', '^1.2.3'), false)
+  assert.equal(satisfiesRange('0.2.9', '^0.2.3'), true)
+  assert.equal(satisfiesRange('0.3.0', '^0.2.3'), false)
+  assert.equal(satisfiesRange('0.0.3', '^0.0.3'), true)
+  assert.equal(satisfiesRange('0.0.4', '^0.0.3'), false)
+  assert.equal(satisfiesRange('1.2.9', '~1.2.3'), true)
+  assert.equal(satisfiesRange('1.3.0', '~1.2.3'), false)
+  assert.equal(satisfiesRange('1.5.0', '1.x'), true)
+  assert.equal(satisfiesRange('2.0.0', '1.x'), false)
+  assert.equal(satisfiesRange('1.2.7', '1.2'), true)
+  assert.equal(satisfiesRange('1.3.0', '1.2'), false)
+  assert.equal(satisfiesRange('1.5.0', '1.2.3 - 1.9.0'), true)
+  assert.equal(satisfiesRange('1.9.1', '1.2.3 - 1.9.0'), false)
+  assert.equal(satisfiesRange('3.0.0', '^1.0.0 || ^3.0.0'), true)
+})
+
+test('an empty or invalid range is unmet', () => {
+  assert.equal(satisfiesRange('1.0.0', ''), false)
+  assert.equal(satisfiesRange('1.0.0', 'not-a-range'), false)
+  assert.equal(satisfiesRange('garbage', '>=1.0.0'), false)
+})

@@ -30,11 +30,11 @@
 | `src/host/rpc.ts` | 面板适配器：每个 action 一条 `POST /api/upkeep/<action>`；信封校验、错误封装、owner 栅栏。 |
 | `src/host/tool.ts` | 模型适配器：`upkeep_status` 工具，同一 Hub；写操作将来经 `tools/pre-execute` 走审批。 |
 | `src/host/types.ts` | 对 Harness 服务的**结构化类型**（`ctx.get(...)` 防御式读取），不 import 内部包。 |
-| `src/host/versions.ts` | semver 解析/比较（含 prerelease 优先级）；M1 的通道与目标版本模型建立在它上面。 |
+| `src/host/versions.ts` | semver 解析、比较与**范围满足**（comparator、`^`、`~`、hyphen、x-range、`||`、部分版本，含 prerelease），对齐 DSH 的 `semver.satisfies(..., { includePrerelease: true })`。 |
 | `src/host/owner.ts` | 归属判定：从包 scope / author / repository / 本地 checkout 与 git remote 取证据，与本地身份（配置、`~/.gitconfig`、gh 登录）匹配，产出 `mine/other/unknown` + 证据 token。 |
-| `src/host/compat.ts` *(M1)* | vendor 的兼容判据，逐条对齐 DSH `plugin-compatibility.ts` 的语义。 |
-| `src/host/feed.ts` *(M1)* | 目标版本感知：npm packument + 通道模型 + 缓存/离线降级。 |
-| `src/host/state.ts` *(M1)* | `ctx.storage.domain` 持久化：`MonitorEntry`、`CompatReport`、`UpgradeRun`。 |
+| `src/host/compat.ts` | vendor 的兼容判据：`engines.dsh` 独占、否则 DSH peer、`workspace:` 改写、精确版本豁免；畸形 manifest 抛 `MALFORMED_MANIFEST`。 |
+| `src/host/feed.ts` | 目标版本感知：npm packument、Desktop 通道 → dist-tag 映射、最大 semver 回退（`latest` 标签不作为唯一依据）、多 registry 回退。 |
+| `src/host/state.ts` | `$DSH_HOME/upkeep/state.json`：版本化、原子写、有界的检查历史与版本 feed 缓存。 |
 | `src/host/upgrade/` *(M3)* | 迁移匹配、worktree、会话启动、验证 oracle、状态机。 |
 | `src/host/deliver/` *(M4)* | `git`/`gh`/`forge` 适配与确认门。 |
 | `src/client.ts` | Web 半：**一段编译脚本**（`module: none`，无 import/export），注册一级侧栏面板（`main` key + `sidebar.panellist` 图标，id `dsh-upkeep`）与 Plugins 设置页分页（同一 id，二级入口）；React 由 loader 的 `require` 提供。 |
@@ -66,6 +66,8 @@
 12. **不虚构兼容结论。** 声明层、运行层、历史层分开呈现；读不到就显示未知并附原因，三种状态不合并成一个布尔值。*检查：* 断网/缺服务时 UI 显示"未知 + 原因"而不是"兼容"。
 13. **监测范围排除官方包。** `@deepseek-ai/*` 属于 DSH 本身、随 DSH 版本走，不进监测列表；状态与工具结果用 `excluded` 报告排除了多少 bundle / 条目，而不是静默丢弃。*检查：* `bundles` 里没有该 scope 的项，且 `excluded` 的计数与 `listBundles` / `listPlugins` 的差值一致。
 14. **归属判定有证据、可配置、未知就是未知。** `mine/other/unknown` 只能由 `src/host/owner.ts` 产出；每条判定带证据 token（`scope:`、`author:`、`repo:`、`remote:`、`local-checkout`、`no-metadata`），身份来自 `ownerHandles`/`ownerEmails` 配置、`~/.gitconfig` 与 gh 登录；没有信号时保持 `unknown`，绝不默认"是我的"。*检查：* owner 单测覆盖四类证据与"无元数据不猜测"；无身份时状态带警告且 `ownership` 全为 unknown。
+15. **目标版本不迷信 `latest`。** 目标版本只来自「配置的精确版本 / 桌面通道映射的 dist-tag / 已发布最大 semver」，`dist-tags.latest` 在 rc 周期会滞后；读到缓存标记 stale，读不到就是未知。*检查：* feed 单测覆盖 channel 映射、最大 semver 回退与 registry 失败回退。
+
 
 ## 新增一个 operation
 

@@ -25,7 +25,7 @@ Two doors, one implementation: everything the panel can do is available to the a
 | Capability | State |
 |---|---|
 | Fixed **Upkeep** panel in the sidebar (level with Plugins), plus a tab in **Settings → Plugins**, status snapshot, ownership and care verdicts, `upkeep_status` tool | **Shipped (M0)** |
-| Compat watch list, declared/runtime/projected compatibility, history | In progress (M1) |
+| Target DSH awareness, declared-layer compatibility (running + projected), stored check history, **Check now** | **Shipped (M1)** |
 | Migration-guide matching and a per-plugin breakage report | Planned (M2) |
 | One-click upgrade in a session or worktree, layered verification | Planned (M3) |
 | Human-confirmed PR / merge delivery | Planned (M4) |
@@ -87,7 +87,7 @@ The panel answers one question first: **what is this installation actually runni
 
 The tool is the model-facing door to the same dispatcher the panel calls. Example: ask the agent *"which of my plugins failed to load?"* and it reads the same snapshot you see in the panel.
 
-## How compatibility is decided (planned, M1)
+## How compatibility is decided
 
 DSH has exactly one official verdict, and Upkeep will copy it rather than invent one:
 
@@ -148,6 +148,7 @@ Before installing into a running profile, rebuild: a linked install serves `dist
 - **The client half is a separate load.** After changing `src/client.ts`, refresh the page; after changing Host code, restart the Harness so the module generation is replaced.
 - **A linked checkout serves `dist/`.** Run `npm run build` before installing or reloading, otherwise the new code will not appear.
 - **Ownership is inference, not an account system.** It reads package metadata and the git remote of local checkouts; when those do not identify you, the plugin stays `Unknown` and you can set `ownerHandles` explicitly. No repository is contacted to verify authorship.
+- **Check now** refreshes the target DSH version from the npm registry, re-evaluates every bundle against both versions, and stores one report under `$DSH_HOME/upkeep/state.json`. The panel shows the target version and channel, marks a cached answer as stale, and only needs the network when you press the button.
 - **No push from the Host.** DSH does not push to the browser. The panel reads on open and on demand, which is a deliberate design choice, not a missing refresh.
 - **Version support.** Verified on DSH `0.2.2-rc.3`; the declared range is `>=0.2.2-rc.1 <0.3.0`. DSH is in a release-candidate cycle, so the range is a promise about the surface this plugin uses, not a claim about every build.
 

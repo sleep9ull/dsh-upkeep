@@ -97,6 +97,8 @@ export interface ProfileContext {
   dir?: string
   /** Absolute path of the running `@deepseek-ai/dsh/package.json`. */
   installAnchor?: string
+  /** The profile's home directory (`$DSH_HOME`), where plugin state belongs. */
+  home?: string
 }
 
 /** Read `ctx.profileContext` structurally. */
@@ -107,6 +109,7 @@ export function profileContext(ctx: HostContext): ProfileContext | undefined {
     name: typeof value.name === 'string' ? value.name : undefined,
     dir: typeof value.dir === 'string' ? value.dir : undefined,
     installAnchor: typeof value.installAnchor === 'string' ? value.installAnchor : undefined,
+    home: typeof value.home === 'string' ? value.home : undefined,
   }
 }
 

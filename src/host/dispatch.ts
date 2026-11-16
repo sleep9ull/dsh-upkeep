@@ -2,19 +2,46 @@
  * The dispatcher: one implementation of every upkeep operation, shared by the
  * Web Client adapter (`host/rpc.ts`) and the model adapter (`host/tool.ts`).
  *
- * M0 scope: read-only status. Compatibility evaluation, migration reports and
- * the upgrade pipeline land in later milestones against the same Hub, so the
- * panels and the agent never get a second implementation of an operation.
+ * M1 scope: read-only monitoring. Each bundle gets a declared-layer evaluation
+ * against the running DSH and (when a target is known) against the next DSH, a
+ * live runtime row count, an ownership verdict and a maintenance verdict. A
+ * `check` run reads the registry once, stores one bounded report, and is the
+ * only M1 operation with a side effect (the state file).
  */
 
 import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { HostContext, ProfileContext } from './types.js'
 import { errorCode, errorMessage, isRecord, pluginManager, profileContext } from './types.js'
-import { classifyOwnership, readPackageFacts, resolveOwnerIdentity } from './owner.js'
+import {
+  CompatibilityError,
+  describeRequirements,
+  evaluatePluginCompatibility,
+  readVersionExemptions,
+} from './compat.js'
+import { classifyOwnership, readInstalledManifest, readPackageFacts, resolveOwnerIdentity } from './owner.js'
 import type { OwnerIdentity, OwnershipVerdict } from './owner.js'
+import {
+  appendCheck,
+  lastCheckView,
+  readState,
+  writeState,
+  type LastCheckView,
+  type StoredCheck,
+  type StoredEvaluation,
+  type StoredReport,
+  type UpkeepState,
+} from './state.js'
+import {
+  DEFAULT_REGISTRIES,
+  detectDesktopChannel,
+  fetchTargetVersion,
+  type TargetVersion,
+} from './feed.js'
+import { compareVersions, parseVersion } from './versions.js'
 
 /** The plugin's own version, read once from the package manifest beside `dist/`. */
 const OWN_VERSION = (() => {
@@ -45,8 +72,14 @@ export function isOfficialPackage(name: string): boolean {
 export interface HubConfig {
   /** Which DSH release channel the monitor compares against; `auto` follows the Desktop update channel. */
   targetChannel: string
+  /** An exact target version; empty means "ask the registry". */
+  targetVersion: string
+  /** How many minutes a cached registry answer stays fresh. */
+  feedTtlMinutes: number
   /** Whether a check runs when the Host starts. */
   checkOnStartup: boolean
+  /** How many checks to retain in the state file. */
+  checksToKeep: number
   /** How many entries a check may inspect concurrently. */
   concurrency: number
   /** Directory under which upgrade worktrees are created; empty means the repository's sibling directory. */
@@ -71,14 +104,22 @@ function normalizeConfigList(value: unknown): string[] {
   return [...seen]
 }
 
+/** Read a bounded integer config value. */
+function normalizeInteger(value: unknown, fallback: number, minimum: number, maximum: number): number {
+  const number = typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : fallback
+  return Math.min(Math.max(number, minimum), maximum)
+}
+
 /** Read the Loader row config defensively; every field has a working default. */
 export function normalizeConfig(raw: unknown): HubConfig {
   const config = isRecord(raw) ? raw : {}
-  const concurrency = typeof config.concurrency === 'number' && Number.isFinite(config.concurrency) ? Math.trunc(config.concurrency) : 2
   return {
     targetChannel: typeof config.targetChannel === 'string' && config.targetChannel.trim() !== '' ? config.targetChannel.trim() : 'auto',
+    targetVersion: typeof config.targetVersion === 'string' ? config.targetVersion.trim() : '',
+    feedTtlMinutes: normalizeInteger(config.feedTtlMinutes, 60, 1, 7 * 24 * 60),
     checkOnStartup: config.checkOnStartup !== false,
-    concurrency: Math.min(Math.max(concurrency, 1), 8),
+    checksToKeep: normalizeInteger(config.checksToKeep, 20, 1, 100),
+    concurrency: normalizeInteger(config.concurrency, 2, 1, 8),
     worktreeRoot: typeof config.worktreeRoot === 'string' ? config.worktreeRoot : '',
     ownerHandles: normalizeConfigList(config.ownerHandles),
     ownerEmails: normalizeConfigList(config.ownerEmails),
@@ -116,6 +157,25 @@ export interface ActionSpec {
   run(input: Record<string, unknown>, call: CallContext): Promise<unknown>
 }
 
+/** One declared-layer evaluation, as the panel reads it. */
+export interface EvaluationView {
+  status: 'compatible' | 'incompatible' | 'unknown'
+  /** Unmet requirements; empty unless incompatible. */
+  requirements: Record<string, string>
+  exempted: boolean
+  reason?: string
+}
+
+/** The compatibility picture of one bundle. */
+export interface BundleCompat {
+  /** Against the running DSH. */
+  running: EvaluationView
+  /** Against the target DSH, when one is known. */
+  target: EvaluationView | null
+  /** Live row health, joined from the plugin inventory. */
+  runtime: { failed: number; pending: number }
+}
+
 /** Whether one of the author's own plugins needs attention. */
 export interface MaintenanceVerdict {
   state: 'ok' | 'attention' | 'unknown' | 'not-mine'
@@ -138,14 +198,20 @@ export interface BundleSummary {
   owner: OwnershipVerdict
   /** Whether this author's plugin needs care. */
   maintenance: MaintenanceVerdict
+  /** Declared-layer compatibility against both versions. */
+  compat: BundleCompat
 }
 
-/** What one installed plugin entry looks like after the M0 projection. */
+/** What one installed plugin entry looks like after the M1 projection. */
 export interface StatusSnapshot {
   checkedAt: number
   plugin: { name: string; version: string }
   dsh: { runtimeVersion: string | null; installAnchor: string | null }
   profile: { name: string | null; dir: string | null }
+  /** The DSH version the monitor compares against. */
+  target: TargetVersion
+  /** The newest stored check, when one ran. */
+  lastCheck?: LastCheckView
   bundles: BundleSummary[]
   plugins: { entryCount: number | null }
   /** Official DSH packages left out of the monitored view, reported instead of hidden. */
@@ -159,6 +225,15 @@ export interface StatusSnapshot {
     identity: { handles: string[]; sources: string[] }
   }
   warnings: string[]
+}
+
+/** Injectable environment, so tests can run the Hub without a plugin context, network or timer. */
+export interface HubDeps {
+  fetchImpl?: typeof fetch
+  now?: () => number
+  home?: string
+  /** Disable the delayed startup check (tests). */
+  startupCheck?: boolean
 }
 
 /** The shared operation surface. */
@@ -189,9 +264,9 @@ function readRuntimeVersion(profile: ProfileContext | undefined): { version: str
   }
 }
 
-/** One listed bundle before ownership and live state are joined onto it. */
+/** One listed bundle before ownership, live state and compatibility are joined onto it. */
 interface BundleListing {
-  base: Omit<BundleSummary, 'owner' | 'maintenance'>
+  base: Omit<BundleSummary, 'owner' | 'maintenance' | 'compat'>
   rowEntryIds: string[]
 }
 
@@ -251,8 +326,7 @@ async function readPluginEntries(ctx: HostContext): Promise<LiveEntries> {
     for (const entry of listed) {
       if (!isRecord(entry)) continue
       const moduleName = typeof entry.moduleName === 'string' ? entry.moduleName : ''
-      const official = isOfficialPackage(moduleName)
-      if (official) excluded += 1
+      if (isOfficialPackage(moduleName)) excluded += 1
       else monitored += 1
       if (typeof entry.entryId === 'string') {
         byEntryId.set(entry.entryId, {
@@ -267,51 +341,120 @@ async function readPluginEntries(ctx: HostContext): Promise<LiveEntries> {
   }
 }
 
-/** Whether one of the author's plugins currently needs care, and why. */
+/** Evaluate one manifest against one DSH version, turning failures into `unknown`. */
+function evaluateManifest(manifest: Record<string, unknown> | undefined, version: string, exemptions: Record<string, string[]>): EvaluationView {
+  if (manifest === undefined) {
+    return { status: 'unknown', requirements: {}, exempted: false, reason: 'the package manifest is unreadable' }
+  }
+  try {
+    const issue = evaluatePluginCompatibility(manifest, version, exemptions)
+    if (issue === undefined) return { status: 'compatible', requirements: {}, exempted: false }
+    return { status: 'incompatible', requirements: issue.requirements, exempted: issue.exempted }
+  } catch (error) {
+    const reason = error instanceof CompatibilityError ? error.message : (errorMessage(error) ?? 'the manifest requirements are invalid')
+    return { status: 'unknown', requirements: {}, exempted: false, reason }
+  }
+}
+
+/** Whether a plugin's own bundle needs care, and why. */
 function classifyMaintenance(
   ownership: OwnershipVerdict,
-  bundle: Omit<BundleSummary, 'owner' | 'maintenance'>,
+  bundle: Omit<BundleSummary, 'owner' | 'maintenance' | 'compat'>,
+  compat: BundleCompat,
   rowEntryIds: string[],
   live: LiveEntries,
+  runtimeVersion: string | null,
+  target: TargetVersion,
 ): MaintenanceVerdict {
   if (ownership.status !== 'mine') return { state: 'not-mine', reasons: [] }
   const reasons: string[] = []
-  if (bundle.error?.code === 'incompatible-version') reasons.push('declared incompatible with the running DSH')
-
-  let failed = 0
-  let pending = 0
-  for (const entryId of rowEntryIds) {
-    const entry = live.byEntryId.get(entryId)
-    if (entry === undefined) continue
-    if (entry.fiberPhase === 'failed') failed += 1
-    else if (entry.fiberPhase === 'pending') pending += 1
+  if (compat.running.status === 'incompatible' && !compat.running.exempted) {
+    reasons.push('declared incompatible with the running DSH')
   }
-  if (failed > 0) reasons.push(`${failed} plugin ${failed === 1 ? 'row' : 'rows'} failed to load`)
-  if (pending > 0) reasons.push(`${pending} plugin ${pending === 1 ? 'row' : 'rows'} waiting for a service`)
-
+  if (compat.target !== null && compat.target.status === 'incompatible' && target.version !== null && (runtimeVersion === null || compareVersions(target.version, runtimeVersion) > 0)) {
+    reasons.push(`will break on ${target.version}`)
+  }
+  if (compat.runtime.failed > 0) reasons.push(`${compat.runtime.failed} plugin ${compat.runtime.failed === 1 ? 'row' : 'rows'} failed to load`)
+  if (compat.runtime.pending > 0) reasons.push(`${compat.runtime.pending} plugin ${compat.runtime.pending === 1 ? 'row' : 'rows'} waiting for a service`)
+  if (bundle.error?.code === 'incompatible-version') reasons.push('DSH refused the bundle as incompatible')
   if (reasons.length > 0) return { state: 'attention', reasons }
   if (live.monitored === null) return { state: 'unknown', reasons: ['live plugin state is unavailable'] }
   return { state: 'ok', reasons: [] }
+}
+
+/** Build the stored compatibility evaluation for one bundle. */
+function storedEvaluation(view: EvaluationView): StoredEvaluation {
+  return {
+    status: view.status,
+    requirements: view.requirements,
+    exempted: view.exempted,
+    ...(view.reason === undefined ? {} : { reason: view.reason }),
+  }
+}
+
+/** The cached target, or the configured exact version. */
+function targetFromState(config: HubConfig, state: UpkeepState, now: number): TargetVersion {
+  const configured = config.targetVersion.trim()
+  if (configured !== '' && parseVersion(configured) !== undefined) {
+    return { version: configured, channel: 'configured', fetchedAt: null, source: 'config', stale: false }
+  }
+  const feed = state.feed
+  if (feed !== undefined) {
+    const ageMinutes = Math.max(0, (now - feed.fetchedAt) / 60_000)
+    return {
+      version: feed.targetVersion,
+      channel: feed.channel,
+      fetchedAt: feed.fetchedAt,
+      source: 'cache',
+      stale: ageMinutes > config.feedTtlMinutes,
+    }
+  }
+  return { version: null, channel: null, fetchedAt: null, source: 'none', stale: false }
 }
 
 /**
  * Build the Hub over the Host context.
  * @param ctx - the plugin's Host context.
  * @param config - the normalized Loader-row config.
+ * @param deps - injectable environment for tests.
  */
-export function createHub(ctx: HostContext, config: HubConfig): Hub {
+export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {}): Hub {
   const profile = profileContext(ctx)
   const manager = pluginManager(ctx)
+  const now = deps.now ?? (() => Date.now())
+  const home = deps.home ?? profile?.home ?? homedir()
   const ownerIdentity: OwnerIdentity = resolveOwnerIdentity({
     handles: config.ownerHandles,
     emails: config.ownerEmails,
     autoDetect: config.autoDetectOwner,
   })
+  let startupTimer: ReturnType<typeof setTimeout> | undefined
 
-  /** Read the status snapshot once; every read action projects from it. */
-  async function snapshot(call: CallContext): Promise<StatusSnapshot> {
-    call.signal?.throwIfAborted()
-    const warnings: string[] = []
+  /** The registry list to ask, from the plugin manager when it exposes one. */
+  async function registryPlan(): Promise<string[]> {
+    const value = ctx.get('pluginManager')
+    const list: string[] = []
+    if (isRecord(value) && typeof value.registries === 'function') {
+      try {
+        const plan: unknown = await (value.registries as () => Promise<unknown>).call(value)
+        if (isRecord(plan)) {
+          if (typeof plan.registry === 'string') list.push(plan.registry)
+          else if (typeof plan.resolved === 'string') list.push(plan.resolved)
+          if (Array.isArray(plan.fallbackRegistries)) {
+            for (const entry of plan.fallbackRegistries) if (typeof entry === 'string') list.push(entry)
+          }
+        }
+      } catch {
+        // Fall through to the defaults.
+      }
+    }
+    const cleaned = list.filter(entry => /^https?:\/\//i.test(entry))
+    return cleaned.length > 0 ? [...new Set(cleaned)] : DEFAULT_REGISTRIES
+  }
+
+  /** Build one status snapshot; `targetOverride` carries a freshly fetched target. */
+  async function buildSnapshot(options: { targetOverride?: TargetVersion; extraWarnings?: string[] } = {}): Promise<StatusSnapshot> {
+    const warnings: string[] = [...(options.extraWarnings ?? [])]
     const runtime = readRuntimeVersion(profile)
     if (runtime.version === null) warnings.push('The running DSH version could not be read from the profile installation anchor.')
     if (ownerIdentity.handles.length === 0 && ownerIdentity.emails.length === 0) {
@@ -333,14 +476,35 @@ export function createHub(ctx: HostContext, config: HubConfig): Hub {
     const live = await readPluginEntries(ctx)
     const monitored = listings.filter(entry => !isOfficialPackage(entry.base.name))
     const excludedBundles = listings.length - monitored.length
+    const state = readState(home)
+    const target = options.targetOverride ?? targetFromState(config, state, now())
+    if (target.source === 'cache' && target.stale) {
+      warnings.push('The target DSH version comes from a stale cached answer; run a check to refresh it.')
+    }
+    const exemptions = readVersionExemptions(profile?.dir)
 
     const bundles: BundleSummary[] = monitored.map((listing) => {
       const facts = readPackageFacts(listing.base.name, listing.base.source ?? undefined, profile?.dir, profile?.installAnchor)
       const owner = classifyOwnership(facts, ownerIdentity, listing.base.name)
+      const manifest = readInstalledManifest(listing.base.name, listing.base.source ?? undefined, profile?.dir, profile?.installAnchor)
+      const running = runtime.version === null
+        ? { status: 'unknown' as const, requirements: {}, exempted: false, reason: 'the running DSH version is unavailable' }
+        : evaluateManifest(manifest, runtime.version, exemptions)
+      const projected = target.version !== null && manifest !== undefined ? evaluateManifest(manifest, target.version, {}) : null
+      let failed = 0
+      let pending = 0
+      for (const entryId of listing.rowEntryIds) {
+        const entry = live.byEntryId.get(entryId)
+        if (entry === undefined) continue
+        if (entry.fiberPhase === 'failed') failed += 1
+        else if (entry.fiberPhase === 'pending') pending += 1
+      }
+      const compat: BundleCompat = { running, target: projected, runtime: { failed, pending } }
       return {
         ...listing.base,
         owner,
-        maintenance: classifyMaintenance(owner, listing.base, listing.rowEntryIds, live),
+        compat,
+        maintenance: classifyMaintenance(owner, listing.base, compat, listing.rowEntryIds, live, runtime.version, target),
       }
     })
 
@@ -351,10 +515,12 @@ export function createHub(ctx: HostContext, config: HubConfig): Hub {
     }
 
     return {
-      checkedAt: Date.now(),
+      checkedAt: now(),
       plugin: { name: PACKAGE_NAME, version: OWN_VERSION },
       dsh: { runtimeVersion: runtime.version, installAnchor: runtime.anchor },
       profile: { name: profile?.name ?? null, dir: profile?.dir ?? null },
+      target,
+      ...(lastCheckView(state) === undefined ? {} : { lastCheck: lastCheckView(state) }),
       bundles,
       plugins: { entryCount: live.monitored },
       excluded: { bundles: excludedBundles, entries: live.excluded },
@@ -366,20 +532,92 @@ export function createHub(ctx: HostContext, config: HubConfig): Hub {
     }
   }
 
+  /** Run one check: refresh the target, evaluate everything, store the report. */
+  async function runCheck(call: CallContext): Promise<StatusSnapshot> {
+    call.signal?.throwIfAborted()
+    const warnings: string[] = []
+    const state = readState(home)
+    let targetOverride: TargetVersion | undefined
+    let cachedFeed = state.feed
+
+    const configured = config.targetVersion.trim()
+    if (configured === '' || parseVersion(configured) === undefined) {
+      const registries = await registryPlan()
+      const channelHint = config.targetChannel === 'auto' ? detectDesktopChannel(profile?.installAnchor) : config.targetChannel
+      const fetched = await fetchTargetVersion({ registries, channelHint, fetchImpl: deps.fetchImpl })
+      if (fetched.ok) {
+        const at = now()
+        targetOverride = { version: fetched.target.version, channel: fetched.target.channel, fetchedAt: at, source: 'network', stale: false }
+        cachedFeed = { fetchedAt: at, targetVersion: fetched.target.version, channel: fetched.target.channel }
+      } else {
+        const detail = fetched.attempts.map(attempt => `${attempt.registry}: ${attempt.error}`).join('; ')
+        warnings.push(`The DSH version feed is unavailable (${detail}); using the cached target.`)
+      }
+    }
+
+    const snapshot = await buildSnapshot({ targetOverride, extraWarnings: warnings })
+    const reports: StoredReport[] = snapshot.bundles.map(bundle => ({
+      bundle: bundle.name,
+      version: bundle.version,
+      ownership: bundle.owner.status,
+      running: storedEvaluation(bundle.compat.running),
+      target: bundle.compat.target === null ? null : storedEvaluation(bundle.compat.target),
+      runtime: bundle.compat.runtime,
+      needsCare: bundle.maintenance.state === 'attention',
+      reasons: bundle.maintenance.reasons,
+    }))
+    const check: StoredCheck = {
+      id: `${snapshot.checkedAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      at: snapshot.checkedAt,
+      runtimeVersion: snapshot.dsh.runtimeVersion,
+      targetVersion: snapshot.target.version,
+      total: reports.length,
+      needsCare: snapshot.ownership.needsMaintenance,
+      reports,
+    }
+    const nextState: UpkeepState = appendCheck({ ...state, ...(cachedFeed === undefined ? {} : { feed: cachedFeed }) }, check, config.checksToKeep)
+    writeState(home, nextState)
+    snapshot.lastCheck = {
+      at: check.at,
+      runtimeVersion: check.runtimeVersion,
+      targetVersion: check.targetVersion,
+      total: check.total,
+      needsCare: check.needsCare,
+    }
+    return snapshot
+  }
+
   const actions: Record<string, ActionSpec> = {
     status: {
       kind: 'read',
-      description: 'Plugin, DSH, profile and installed-bundle status in one snapshot.',
-      run: async (_input, call) => await snapshot(call),
+      description: 'DSH, profile, target version, bundles, ownership and care verdicts in one snapshot.',
+      run: async (_input, call) => {
+        call.signal?.throwIfAborted()
+        return await buildSnapshot()
+      },
+    },
+    check: {
+      kind: 'read',
+      description: 'Refresh the target DSH version from the registry, evaluate every bundle and store one report.',
+      run: async (_input, call) => await runCheck(call),
     },
     'bundles.list': {
       kind: 'read',
-      description: 'Monitored (non-official) bundles with their version, source availability and load error.',
+      description: 'Monitored (non-official) bundles with their version, source availability, compatibility and load error.',
       run: async (_input, call) => {
-        const status = await snapshot(call)
-        return { checkedAt: status.checkedAt, bundles: status.bundles, excluded: status.excluded }
+        call.signal?.throwIfAborted()
+        const status = await buildSnapshot()
+        return { checkedAt: status.checkedAt, bundles: status.bundles, excluded: status.excluded, target: status.target }
       },
     },
+  }
+
+  // One delayed startup check, unref'd so it never holds the process open.
+  if (config.checkOnStartup && deps.startupCheck !== false) {
+    startupTimer = setTimeout(() => {
+      void runCheck({ caller: 'schedule' }).catch(() => undefined)
+    }, 2_000)
+    startupTimer.unref?.()
   }
 
   return {
@@ -392,11 +630,12 @@ export function createHub(ctx: HostContext, config: HubConfig): Hub {
         return await spec.run(input, call)
       } catch (error) {
         if (error instanceof HubError) throw error
+        if (error instanceof CompatibilityError) throw new HubError(error.code, error.message)
         throw new HubError(errorCode(error) ?? 'UPKEEP_FAILED', errorMessage(error) ?? 'The upkeep operation failed.')
       }
     },
     dispose() {
-      // M0 holds no resources. Later milestones register timers and locks here.
+      if (startupTimer !== undefined) clearTimeout(startupTimer)
     },
   }
 }

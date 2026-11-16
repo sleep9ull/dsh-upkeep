@@ -195,7 +195,7 @@ ELECTRON_RUN_AS_NODE=1 "$DSH_NODE_EXECUTABLE" "$DSH_INSTALL_DIR/lib/bin.js" --ve
 | D4 | **无人值守边界** | agent 可以改代码、跑测试；**交付必须人工确认**；默认 PR，不自动 merge | 子 agent 审批固定 `never`；越界写操作与凭据访问本就该由人确认 |
 | D5 | **前后端通道** | 沿用 asc-hub 模式：Host `ctx.connection.fetch.register` 一组 `/api/upkeep/<action>` + Client `ctx.connection.rpc.call` | 已在本机生产验证；自带 owner 栅栏；不做 Typert 代码生成，避免与 DSH 版本强耦合 |
 | D6 | **UI 落点** | 主入口 = **一级侧栏面板**（`main` + `sidebar.panellist`，与 Plugins / Automation tasks 同级）；设置页分页作为二级入口；常驻提示 = `shell.overlay`/footer 角标；不做 iframe | 一级面板才够"明显"；slots 是唯一稳定 UI 扩展面，`MainPanelId` 是开放 brand，第三方插件可注册 |
-| D7 | **状态存储** | 策略/通道/命令模板放插件 `Config`；监测清单、检查历史、升级运行记录放 `ctx.storage.domain` | Config 便于用户手改与随 patch 升级；动态数据需要 schema 校验与 `domain/changed` 事件 |
+| D7 | **状态存储** | 策略/通道/命令模板放插件 `Config`；检查历史与版本 feed 缓存放 `$DSH_HOME/upkeep/state.json`（版本化、原子写、有界） | DSH 的 domain storage 要求 zod record schema，与「Host 半零运行时依赖」（invariant 7）冲突；状态是可再生派生数据，文件方案更简单且可测 |
 | D8 | **升级知识来源** | 本地 `docs/upgrade-guide` 为主；目标版本比安装版新时按 GitHub tag 拉取；持久化变化用 `persistence-schema.json` diff | 唯一权威、结构规整、可离线；GitHub tag 已验证可用 |
 | D9 | **对 DSH 内部 API 的依赖** | 核心判定逻辑 **vendor** 一份（约 40 行）+ 运行时能力探测；只把 `ctx.*` 服务当稳定 API | app-boot 无稳定性承诺且形状变过；vendor 保证插件自身不会因内部 API 变化而崩 |
 | D10 | **实验包依赖** | worktree / forge 做成**可选能力**：检测到就用，缺失走 Host `git`/`gh` 降级 | 实验包桌面默认未挂载；硬依赖会让插件在默认 profile 里不工作 |
@@ -364,6 +364,8 @@ idle
 
 > 估时为"单人、熟悉 DSH 插件开发"的净开发时间，不含等待评审/安装审批。M0 必须先做，因为通道、CLI 实验台、pnpm 三个前提任何一项不成立都会改变后续设计。
 
+**进度：M0 完成（含 M0.1–M0.7 的 UI/监测范围迭代），M1 已实现（见 §11）。**
+
 ### M0 脚手架与可行性冒烟（2–3 天）
 
 - 复制 asc-hub 工程规范：`tsc` 双配置、`dist/`、`cordis.patch.yml`、`locale`、`icon.svg`、`engines.dsh`、`dsh.client`。
@@ -530,6 +532,18 @@ idle
 - 配置新增 `ownerHandles` / `ownerEmails` / `autoDetectOwner`（默认自动探测）；无身份时给出警告并全部显示未知。
 - Client：摘要增加"我的插件 / 需维护 / 他人插件"，表格增加"归属 / 维护"两列，hover 显示证据与原因。
 - 验证：新增 owner 单测 7 条、归属+维护集成单测 1 条，共 25 个单测通过；真机需重启后生效。
+### M1 已完成（2026-11-16）
+
+- `src/host/versions.ts`：补上 semver **范围满足**（comparator、caret、tilde、hyphen、x-range、partial、`||`、prerelease），对齐 DSH 的 `semver.satisfies(..., { includePrerelease: true })`。
+- `src/host/compat.ts`：vendor 判据（`engines.dsh` 独占 → 否则 DSH peer → `workspace:` 改写 → 精确版本豁免；畸形字段抛 `MALFORMED_MANIFEST`）。
+- `src/host/feed.ts`：npm packument + Desktop 通道映射（stable→latest、nightly→next、alpha→alpha）+ 最大 semver 回退 + 多 registry 回退；**不单独信 `latest`**。
+- `src/host/state.ts`：`$DSH_HOME/upkeep/state.json`，版本化、原子写、检查历史上限与 feed 缓存。
+- `status` / `check` / `bundles.list` 三个 action：`check` 刷新目标版本、逐 bundle 产出「声明层运行版 / 目标版判定 + 运行层行状态」并写一条报告；`status` 只读缓存，离线可用；启动 2s 后自动 check 一次（unref，可配置关）。
+- 维护结论扩展：目标版本不兼容（且比运行版新）→ `will break on <version>`；运行版不兼容（未被豁免）→ 需维护。
+- Client：元信息行加目标版本（含通道/stale）与上次检查；「立即检查」为主操作；行悬停显示不兼容需求明细。
+- 测试：40 个单测通过（新增 range 3 组、compat 5 条、feed 3 条、state 2 条、check 集成 1 条）。
+- 未验证：真机渲染（需刷新页面）；真实 registry 抓取（单测用注入 fetch，真机需重启 Host 后点「立即检查」验证）。
+
 
 ### M0.4 归属分组视图（2026-11-16）
 
