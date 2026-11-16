@@ -76,7 +76,7 @@ dsh plugin --profile <profile> add /absolute/path/to/dsh-upkeep
 - 页头显示标题，以及唯一的按钮 **刷新**。
 - 摘要区显示运行中的 DSH 版本、profile 名称、活跃插件条目数、已安装 bundle 数。
 - bundle 表格逐行给出名称、版本、状态（已启用 / 已禁用 / 加载失败）、**归属**（我的 / 他人 / 未知）与**维护**（需维护 / 正常 / 未知）。鼠标悬停在结论上可以看到判定依据。
-- 归属是**推断**而不是假设：用包的 scope、`author`、`repository`、本地 checkout 的 git remote，与你的身份匹配——插件配置里的 `ownerHandles` / `ownerEmails`，加上 `~/.gitconfig` 的 name/email 和已登录的 `gh` 账号。没有任何可识别信号的插件保持 **未知**。
+- 归属是**推断**而不是假设：用包的 scope、`author`、`repository`、本地 checkout 的 git remote，与你的身份匹配——插件配置里的 `ownerHandles` / `ownerEmails`，加上 `~/.gitconfig` 的 name/email 和已登录的 `gh` 账号。没有任何可识别信号的插件保持 **未知**。身份取的是**运行它的那台机器**：换一个开发者的电脑安装，它会识别出那个人的插件并归为"我的"，同一个插件服务所有作者。
 - 维护结论只对**我的**插件计算：与当前 DSH 声明不兼容、或某个插件行加载失败 → **需维护**；否则显示 **正常**（声明范围的前瞻判定随 M1 到来）。
 - 官方 `@deepseek-ai/*` 包属于 DSH 本身，不会出现在监测列表里；摘要区会说明排除了多少 bundle 与插件条目，不会让人以为漏了数据。
 - 某个事实读不到时，用行内提示说明原因（例如 plugin-manager 服务未挂载）。读不到的值显示为"未知 + 原因"，不做猜测。

@@ -74,3 +74,21 @@ test('explicit configuration wins and auto-detection can be disabled', () => {
   assert.deepEqual(identity.emails, ['dev@example.com'])
   assert.deepEqual(identity.sources, ['config'])
 })
+
+test('any machine identity is detected and classified, not one hardcoded account', () => {
+  // A completely different person on a different machine: the plugin has no
+  // account of its own baked in, it resolves whoever is running it.
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-other-'))
+  writeFileSync(join(home, '.gitconfig'), '[user]\n\tname = Octocat\n\temail = octocat@example.dev\n')
+  mkdirSync(join(home, '.config', 'gh'), { recursive: true })
+  writeFileSync(join(home, '.config', 'gh', 'hosts.yml'), 'github.com:\n    user: octocat\n')
+
+  const theirs = resolveOwnerIdentity({ autoDetect: true }, { home })
+  assert.deepEqual(theirs.handles, ['octocat'])
+  assert.equal(classifyOwnership({ repositoryOwner: 'octocat' }, theirs, 'plugin-x').status, 'mine')
+  assert.equal(classifyOwnership({ repositoryOwner: 'sleep9ull' }, theirs, 'plugin-y').status, 'other')
+  assert.equal(classifyOwnership({}, theirs, '@octocat/scoped-plugin').status, 'mine')
+
+  // The reverse holds on the first machine: it does not claim their plugin.
+  assert.equal(classifyOwnership({ repositoryOwner: 'octocat' }, identity, 'plugin-x').status, 'other')
+})
