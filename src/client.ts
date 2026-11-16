@@ -151,6 +151,26 @@ interface Window {
       const TAB_ID = 'dsh-upkeep'
       /** First-level sidebar panel id: the `main` key and the `sidebar.panellist` icon id agree. */
       const PANEL_ID = TAB_ID
+      /** Remembered choice for the "other plugins" group; hidden until the reader opens it. */
+      const OTHERS_OPEN_KEY = 'dsh.upkeep.othersExpanded'
+
+      /** The group starts collapsed: other authors' plugins are noise until asked for. */
+      function readOthersOpen(): boolean {
+        try {
+          return window.localStorage.getItem(OTHERS_OPEN_KEY) === 'true'
+        } catch {
+          return false
+        }
+      }
+
+      /** Persist the choice so a refresh keeps the reader's preference. */
+      function writeOthersOpen(open: boolean): void {
+        try {
+          window.localStorage.setItem(OTHERS_OPEN_KEY, open ? 'true' : 'false')
+        } catch {
+          // Private mode or a blocked storage partition: keep the in-memory state.
+        }
+      }
 
       const en: Record<string, string> = {
         tab: 'Upkeep',
@@ -194,6 +214,8 @@ interface Window {
         groupOthersHint: 'Other authors or unknown ownership',
         noMine: 'No plugin is recognized as yours. Set ownerHandles if that is wrong.',
         noOthers: 'No other plugins.',
+        collapseOthers: 'Collapse other plugins',
+        expandOthers: 'Expand other plugins',
         empty: 'No bundles were reported.',
         warnings: 'Warnings',
         notConnected: 'The panel is not connected to the Host yet.',
@@ -242,6 +264,8 @@ interface Window {
         groupOthersHint: '他人或归属未知',
         noMine: '没有识别到属于你的插件。若判断有误，请设置 ownerHandles。',
         noOthers: '没有其他插件。',
+        collapseOthers: '收起其他插件',
+        expandOthers: '展开其他插件',
         empty: '没有读取到任何 bundle。',
         warnings: '提示',
         notConnected: '面板尚未连接到 Host。',
@@ -287,6 +311,10 @@ interface Window {
 [data-upkeep] .upkeep-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 3px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
 [data-upkeep] .upkeep-group-title { margin: 0; font-size: 12px; font-weight: 600; }
 [data-upkeep] .upkeep-group-hint { color: var(--dsw-alias-label-secondary); font-size: 11px; text-align: right; }
+[data-upkeep] .upkeep-group-toggle { width: 100%; margin: 0; padding: 0 0 3px; border: none; border-bottom: 1px solid var(--dsw-alias-border-l1); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+[data-upkeep] .upkeep-group-toggle:hover .upkeep-group-title { color: var(--dsw-alias-brand-primary); }
+[data-upkeep] .upkeep-group-left { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+[data-upkeep] .upkeep-group-chevron { flex: none; width: 11px; color: var(--dsw-alias-label-secondary); font-size: 10px; }
 @media (max-width: 520px) {
   [data-upkeep] .upkeep-head { flex-wrap: wrap; }
 }
@@ -451,6 +479,10 @@ interface Window {
           if (state.phase === 'idle') void store.refresh()
         }, [state.phase])
 
+        // The other-authors group is collapsed by default and remembers being opened.
+        const [othersOpen, setOthersOpen] = React.useState<boolean>(readOthersOpen)
+        React.useEffect(() => { writeOthersOpen(othersOpen) }, [othersOpen])
+
         const summary: Array<[string, Child]> = [
           [t('pluginVersion'), h('span', { className: 'upkeep-mono' }, data && data.plugin && data.plugin.version ? data.plugin.version : t('unknown'))],
           [t('dshVersion'), h('span', { className: 'upkeep-mono' }, data && data.dsh && data.dsh.runtimeVersion ? data.dsh.runtimeVersion : t('unknown'))],
@@ -498,18 +530,50 @@ interface Window {
         const otherBundles = bundles.filter(bundle => ownerOf(bundle) !== 'mine')
 
         /** One visually separated group: a heading line plus its own table. */
-        const group = (key: 'mine' | 'others', title: string, hint: string, rows: BundleSummary[], emptyText: string): Child =>
-          h('section', { className: 'upkeep-group', 'data-group': key },
-            h('div', { className: 'upkeep-group-head' },
-              h('h4', { className: 'upkeep-group-title' }, title + ' · ' + String(rows.length)),
-              h('span', { className: 'upkeep-group-hint' }, hint)),
-            renderBundleTable(rows, t, emptyText))
+        const group = (
+          key: 'mine' | 'others',
+          title: string,
+          hint: string,
+          rows: BundleSummary[],
+          emptyText: string,
+          options: { collapsible?: boolean; open?: boolean; onToggle?: () => void } = {},
+        ): Child => {
+          const collapsible = options.collapsible === true
+          const open = options.open === true
+          const label = title + ' · ' + String(rows.length)
+          const header = collapsible
+            ? h('button', {
+                className: 'upkeep-group-head upkeep-group-toggle',
+                type: 'button',
+                'aria-expanded': open ? 'true' : 'false',
+                title: open ? t('collapseOthers') : t('expandOthers'),
+                onClick: options.onToggle,
+              },
+              h('span', { className: 'upkeep-group-left' },
+                h('span', { className: 'upkeep-group-chevron', 'data-open': open ? 'true' : 'false' }, open ? '▾' : '▸'),
+                h('span', { className: 'upkeep-group-title' }, label)),
+              h('span', { className: 'upkeep-group-hint' }, hint))
+            : h('div', { className: 'upkeep-group-head' },
+                h('h4', { className: 'upkeep-group-title' }, label),
+                h('span', { className: 'upkeep-group-hint' }, hint))
+          return h('section', {
+            className: 'upkeep-group',
+            'data-group': key,
+            'data-collapsed': collapsible && !open ? 'true' : 'false',
+          },
+            header,
+            collapsible && !open ? null : renderBundleTable(rows, t, emptyText))
+        }
 
         const groups = !ready && bundles.length === 0
           ? h('div', { className: 'upkeep-empty' }, t('loading'))
           : h('div', { className: 'upkeep-groups' },
               group('mine', t('groupMine'), t('groupMineHint'), mineBundles, t('noMine')),
-              group('others', t('groupOthers'), t('groupOthersHint'), otherBundles, t('noOthers')))
+              group('others', t('groupOthers'), t('groupOthersHint'), otherBundles, t('noOthers'), {
+                collapsible: true,
+                open: othersOpen,
+                onToggle: () => setOthersOpen((open: boolean) => !open),
+              }))
 
         const actions = h('div', { className: 'upkeep-actions' },
           !page && openPanel

@@ -68,6 +68,9 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   assert.match(client, /'data-group'/)
   assert.match(client, /groupMine/)
   assert.match(client, /groupOthers/)
+  // Other authors' plugins stay folded until asked for, and the choice persists.
+  assert.match(client, /upkeep-group-toggle/)
+  assert.match(client, /dsh\.upkeep\.othersExpanded/)
 })
 
 test('both READMEs exist, link to each other, and ship with their license', () => {
