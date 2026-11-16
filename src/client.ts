@@ -65,6 +65,11 @@ type BundleCompat = {
   running?: EvaluationView
   target?: EvaluationView | null
   runtime?: { failed?: number; pending?: number }
+  impact?: {
+    matched?: number
+    versions?: string[]
+    top?: Array<{ version?: string; item?: string; description?: string }>
+  }
 }
 
 type TargetVersion = {
@@ -261,6 +266,7 @@ interface Window {
         cached: 'cached',
         incompatible: 'incompatible',
         breaksOn: 'breaks on',
+        breakingChanges: 'breaking changes',
       }
 
       const zh: Record<string, string> = {
@@ -317,6 +323,7 @@ interface Window {
         cached: '缓存',
         incompatible: '不兼容',
         breaksOn: '将在',
+        breakingChanges: '破坏性变更',
       }
 
       const CSS = `
@@ -535,12 +542,17 @@ interface Window {
                     : ''
                 const runningText = requirementText(compat && compat.running)
                 const targetText = requirementText(compat && compat.target)
+                const impact = compat && compat.impact
+                const impactText = impact && typeof impact.matched === 'number' && impact.matched > 0
+                  ? String(impact.matched) + ' ' + t('breakingChanges') + (impact.versions && impact.versions.length > 0 ? ' (' + impact.versions.join(', ') + ')' : '')
+                  : ''
                 const detail = [
                   typeof bundle.rowCount === 'number' ? String(bundle.rowCount) + ' ' + t('entries') : '',
                   bundle.source || '',
                   ownershipEvidence,
                   runningText === '' ? '' : t('incompatible') + ': ' + runningText,
                   targetText === '' ? '' : t('breaksOn') + ' ' + (options.targetVersion ?? '') + ': ' + targetText,
+                  impactText,
                 ].filter(part => part !== '').join(' · ')
                 const cells: Child[] = [
                   h('td', { key: 'name', className: 'upkeep-name' },

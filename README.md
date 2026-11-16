@@ -26,7 +26,7 @@ Two doors, one implementation: everything the panel can do is available to the a
 |---|---|
 | Fixed **Upkeep** panel in the sidebar (level with Plugins), plus a tab in **Settings → Plugins**, status snapshot, ownership and care verdicts, `upkeep_status` tool | **Shipped (M0)** |
 | Target DSH awareness, declared-layer compatibility (running + projected), stored check history, **Check now** | **Shipped (M1)** |
-| Migration-guide matching and a per-plugin breakage report | Planned (M2) |
+| Migration-guide matching and a per-plugin breakage report | **Shipped (M2)** |
 | One-click upgrade in a session or worktree, layered verification | Planned (M3) |
 | Human-confirmed PR / merge delivery | Planned (M4) |
 | Recurring checks through DSH's schedule service | Planned (M5) |
@@ -96,6 +96,10 @@ DSH has exactly one official verdict, and Upkeep will copy it rather than invent
 3. **Historical layer** — Upkeep's own record of when a plugin stopped matching, which DSH does not keep.
 
 Because the verdict is computed from your plugins' manifests and the running version, Upkeep can also answer the more useful question early: **will this plugin still load on the next DSH?** That projection is what turns a release-day surprise into a task you can schedule.
+
+### Migration reports
+
+A `check` also reads DSH's upgrade guides for the releases between the running and target DSH, scans each of your plugins for the surfaces it actually uses (packages, services, events, tools, commands, slots, patch rows, config keys), and matches the guide text against them. The panel shows the count on the row tooltip; the `upkeep_status` tool's `report.get` action returns the matched items with their Change and Migration sections and the surfaces that caused each match.
 
 ## One-click upgrade (planned, M3–M4)
 

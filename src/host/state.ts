@@ -33,6 +33,12 @@ export interface StoredReport {
   runtime: { failed: number; pending: number }
   needsCare: boolean
   reasons: string[]
+  /** Migration-guide items that mention this plugin's surfaces (M2). */
+  impact?: {
+    matched: number
+    versions: string[]
+    top: Array<{ version: string; item: string; description: string }>
+  }
 }
 
 /** One completed check. */

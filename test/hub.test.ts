@@ -223,3 +223,50 @@ test('check reads the registry, projects the target and stores one report', asyn
   assert.equal(cached.target.version, '0.2.3-rc.1')
   assert.equal(cached.target.source, 'cache')
 })
+
+test('check matches migration guides and report.get returns the hits', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-m2-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-m2-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-m2-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const guideDir = join(installDir, 'docs', 'upgrade-guide', 'v0.2.2-rc.1', 'tools')
+  mkdirSync(guideDir, { recursive: true })
+  writeFileSync(join(guideDir, 'guide.md'), [
+    '---', 'kind: upgrade-guide', 'description: "Tools moved."', '---', '',
+    '## Change', 'Use ctx.tools through @deepseek-ai/dsh-tools.', '', '## Migration', '1. Update.', '',
+  ].join('\n'))
+
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(join(packageDir, 'src'), { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
+    name: '@sleep9ull/plugin',
+    version: '1.0.0',
+    engines: { dsh: '^0.2.2-rc.1' },
+  }))
+  writeFileSync(join(packageDir, 'src', 'index.js'), "import '@deepseek-ai/dsh-tools'\nctx.tools.register({})\n")
+
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [] }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false, targetVersion: '0.2.2-rc.3' }), {
+    home, startupCheck: false, now: () => 2_000,
+  })
+
+  const status = await hub.call('check', {}, { caller: 'client' }) as {
+    bundles: Array<{ name: string; compat: { impact?: { matched: number; versions: string[] } } }>
+  }
+  assert.ok((status.bundles[0]?.compat.impact?.matched ?? 0) >= 1)
+
+  const stored = readState(home)
+  assert.ok((stored.checks[0]?.reports[0]?.impact?.matched ?? 0) >= 1)
+
+  const report = await hub.call('report.get', { bundle: '@sleep9ull/plugin' }, { caller: 'tool' }) as {
+    guideSource: string
+    matched: Array<{ item: string; change: string; matchedSurfaces: Array<{ value: string }> }>
+  }
+  assert.equal(report.guideSource, 'installed')
+  assert.ok(report.matched.length >= 1)
+  assert.match(report.matched[0]?.change ?? '', /ctx\.tools/)
+})

@@ -22,7 +22,7 @@ import {
   evaluatePluginCompatibility,
   readVersionExemptions,
 } from './compat.js'
-import { classifyOwnership, readInstalledManifest, readPackageFacts, resolveOwnerIdentity } from './owner.js'
+import { classifyOwnership, readInstalledManifest, readInstalledPackageDir, readPackageFacts, resolveOwnerIdentity } from './owner.js'
 import type { OwnerIdentity, OwnershipVerdict } from './owner.js'
 import {
   appendCheck,
@@ -41,6 +41,9 @@ import {
   fetchTargetVersion,
   type TargetVersion,
 } from './feed.js'
+import { fetchRemoteGuides, readInstalledGuides, type GuideSet } from './guides.js'
+import { summarizeMatches, matchGuides, type ImpactSummary, type GuideMatch } from './match.js'
+import { scanSurfaces, type SurfaceInventory } from './surfaces.js'
 import { compareVersions, parseVersion } from './versions.js'
 
 /** The plugin's own version, read once from the package manifest beside `dist/`. */
@@ -80,6 +83,8 @@ export interface HubConfig {
   checkOnStartup: boolean
   /** How many checks to retain in the state file. */
   checksToKeep: number
+  /** Whether a check also matches the migration guides against each plugin's surfaces. */
+  analyzeOnCheck: boolean
   /** How many entries a check may inspect concurrently. */
   concurrency: number
   /** Directory under which upgrade worktrees are created; empty means the repository's sibling directory. */
@@ -119,6 +124,7 @@ export function normalizeConfig(raw: unknown): HubConfig {
     feedTtlMinutes: normalizeInteger(config.feedTtlMinutes, 60, 1, 7 * 24 * 60),
     checkOnStartup: config.checkOnStartup !== false,
     checksToKeep: normalizeInteger(config.checksToKeep, 20, 1, 100),
+    analyzeOnCheck: config.analyzeOnCheck !== false,
     concurrency: normalizeInteger(config.concurrency, 2, 1, 8),
     worktreeRoot: typeof config.worktreeRoot === 'string' ? config.worktreeRoot : '',
     ownerHandles: normalizeConfigList(config.ownerHandles),
@@ -174,6 +180,8 @@ export interface BundleCompat {
   target: EvaluationView | null
   /** Live row health, joined from the plugin inventory. */
   runtime: { failed: number; pending: number }
+  /** Migration-guide items that mention this plugin's surfaces (M2). */
+  impact?: ImpactSummary
 }
 
 /** Whether one of the author's own plugins needs attention. */
@@ -452,6 +460,66 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     return cleaned.length > 0 ? [...new Set(cleaned)] : DEFAULT_REGISTRIES
   }
 
+  /** Which guide window applies: future releases when the target is newer, else the installed history. */
+  function guideWindow(): { from: string | null; to: string | null } {
+    const runtime = readRuntimeVersion(profile).version
+    const target = targetFromState(config, readState(home), now())
+    if (runtime !== null && target.version !== null && compareVersions(target.version, runtime) > 0) {
+      return { from: runtime, to: target.version }
+    }
+    return { from: null, to: null }
+  }
+
+  /** Load installed guides and, for a newer target, the missing ones from the release tag. */
+  async function loadGuides(): Promise<{ guides: GuideSet; warnings: string[] }> {
+    const window = guideWindow()
+    const installed = readInstalledGuides(profile?.installAnchor, window.from, window.to)
+    const warnings = [...installed.warnings]
+    if (window.to === null) return { guides: installed, warnings }
+    const remote = await fetchRemoteGuides({
+      targetVersion: window.to,
+      from: window.from,
+      to: window.to,
+      fetchImpl: deps.fetchImpl,
+    })
+    warnings.push(...remote.warnings)
+    const seen = new Set(installed.items.map(item => item.version + '/' + item.item))
+    const items = [...installed.items]
+    for (const item of remote.items) {
+      const key = item.version + '/' + item.item
+      if (seen.has(key)) continue
+      seen.add(key)
+      items.push(item)
+    }
+    return {
+      guides: {
+        source: remote.items.length > 0 ? 'github' : installed.source,
+        versions: [...new Set([...installed.versions, ...remote.versions])].sort(compareVersions),
+        items,
+        warnings,
+      },
+      warnings,
+    }
+  }
+
+  /** Match the guides against one bundle's scanned surfaces. */
+  async function analyzeBundle(
+    listing: BundleListing,
+    guides: GuideSet,
+  ): Promise<{ impact?: ImpactSummary; matches: GuideMatch[]; inventory?: SurfaceInventory; warnings: string[] }> {
+    const source = listing.base.source ?? undefined
+    const packageDir = readInstalledPackageDir(listing.base.name, source, profile?.dir, profile?.installAnchor)
+    if (packageDir === undefined) {
+      return { matches: [], warnings: [`The package directory of ${listing.base.name} could not be resolved.`] }
+    }
+    const manifest = readInstalledManifest(listing.base.name, source, profile?.dir, profile?.installAnchor)
+    const inventory = scanSurfaces(packageDir, manifest)
+    const matches = matchGuides(guides, inventory)
+    const warnings = [...inventory.warnings]
+    if (matches.length === 0) return { matches, inventory, warnings }
+    return { impact: summarizeMatches(matches), matches, inventory, warnings }
+  }
+
   /** Build one status snapshot; `targetOverride` carries a freshly fetched target. */
   async function buildSnapshot(options: { targetOverride?: TargetVersion; extraWarnings?: string[] } = {}): Promise<StatusSnapshot> {
     const warnings: string[] = [...(options.extraWarnings ?? [])]
@@ -508,6 +576,13 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
       }
     })
 
+    // Reuse the newest stored analysis instead of rescanning on every status read.
+    const storedReports = state.checks[0]?.reports ?? []
+    for (const bundle of bundles) {
+      const stored = storedReports.find(report => report.bundle === bundle.name)
+      if (stored?.impact !== undefined) bundle.compat.impact = stored.impact
+    }
+
     const rollup = { mine: 0, other: 0, unknown: 0, needsMaintenance: 0 }
     for (const bundle of bundles) {
       rollup[bundle.owner.status] += 1
@@ -556,6 +631,27 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     }
 
     const snapshot = await buildSnapshot({ targetOverride, extraWarnings: warnings })
+
+    // M2: one guide read per check, then a bounded scan+match per own bundle.
+    if (config.analyzeOnCheck) {
+      const loaded = await loadGuides()
+      snapshot.warnings.push(...loaded.warnings)
+      let listed: BundleListing[] = []
+      try {
+        listed = ((await manager?.listBundles()) ?? []).map(readBundleListing).filter((entry): entry is BundleListing => entry !== undefined)
+      } catch {
+        listed = []
+      }
+      for (const bundle of snapshot.bundles) {
+        if (bundle.owner.status !== 'mine') continue
+        const listing = listed.find(entry => entry.base.name === bundle.name)
+        if (listing === undefined) continue
+        const analysis = await analyzeBundle(listing, loaded.guides)
+        if (analysis.impact !== undefined) bundle.compat.impact = analysis.impact
+        snapshot.warnings.push(...analysis.warnings)
+      }
+    }
+
     const reports: StoredReport[] = snapshot.bundles.map(bundle => ({
       bundle: bundle.name,
       version: bundle.version,
@@ -565,6 +661,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
       runtime: bundle.compat.runtime,
       needsCare: bundle.maintenance.state === 'attention',
       reasons: bundle.maintenance.reasons,
+      ...(bundle.compat.impact === undefined ? {} : { impact: bundle.compat.impact }),
     }))
     const check: StoredCheck = {
       id: `${snapshot.checkedAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
@@ -600,6 +697,30 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
       kind: 'read',
       description: 'Refresh the target DSH version from the registry, evaluate every bundle and store one report.',
       run: async (_input, call) => await runCheck(call),
+    },
+    'report.get': {
+      kind: 'read',
+      description: 'Migration-guide report for one monitored bundle: matched guide items, their Change/Migration text and the scanned surfaces.',
+      run: async (input) => {
+        const name = typeof input.bundle === 'string' ? input.bundle.trim() : ''
+        if (name === '') throw new HubError('INVALID_INPUT', 'report.get needs a bundle name')
+        const listed = manager
+          ? (await manager.listBundles()).map(readBundleListing).filter((entry): entry is BundleListing => entry !== undefined)
+          : []
+        const listing = listed.find(entry => entry.base.name === name && !isOfficialPackage(entry.base.name))
+        if (listing === undefined) throw new HubError('UNKNOWN_BUNDLE', `No monitored bundle named ${name}`)
+        const loaded = await loadGuides()
+        const analysis = await analyzeBundle(listing, loaded.guides)
+        return {
+          bundle: name,
+          window: guideWindow(),
+          guideSource: loaded.guides.source,
+          guideVersions: loaded.guides.versions,
+          matched: analysis.matches,
+          inventory: analysis.inventory ?? null,
+          warnings: [...loaded.warnings, ...analysis.warnings],
+        }
+      },
     },
     'bundles.list': {
       kind: 'read',

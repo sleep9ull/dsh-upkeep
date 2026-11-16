@@ -25,8 +25,12 @@ Read-only: it never installs, enables, edits, or contacts the network.`
 const PARAMETERS: Record<string, unknown> = {
   action: {
     type: 'string',
-    enum: ['status', 'check', 'bundles.list'],
-    description: 'status: DSH, target version, bundles and verdicts in one snapshot (default). check: refresh the target from the registry and store one report. bundles.list: installed bundles only.',
+    enum: ['status', 'check', 'bundles.list', 'report.get'],
+    description: 'status: DSH, target version, bundles and verdicts in one snapshot (default). check: refresh the target from the registry, store one report and match the migration guides. bundles.list: installed bundles only. report.get: matched migration-guide items for one bundle (needs bundle).',
+  },
+  bundle: {
+    type: 'string',
+    description: 'For report.get: the monitored bundle package name.',
   },
 }
 
@@ -43,8 +47,10 @@ export function registerTool(ctx: HostContext, tools: ToolRegistry, hub: Hub): v
     },
     async execute(args, exec) {
       const action = typeof args?.action === 'string' && args.action !== '' ? args.action : 'status'
+      const input: Record<string, unknown> = {}
+      if (typeof args?.bundle === 'string') input.bundle = args.bundle
       try {
-        return await hub.call(action, {}, { caller: 'tool', signal: exec?.signal })
+        return await hub.call(action, input, { caller: 'tool', signal: exec?.signal })
       } catch (error) {
         const failure = new Error(errorMessage(error) ?? 'The upkeep operation failed.')
         failure.name = 'UpkeepError'

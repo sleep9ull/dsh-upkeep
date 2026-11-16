@@ -227,6 +227,35 @@ function factsFromManifest(name: string, manifest: unknown): PackageFacts {
 }
 
 /**
+ * Resolve one installed bundle's package directory (the scanned plugin source root).
+ * @param name - the bundle's package name.
+ * @param source - the `source` spec `listBundles()` reports, when any.
+ * @param profileDir - the current profile directory.
+ * @param installAnchor - the running DSH manifest path, used as an extra resolution anchor.
+ */
+export function readInstalledPackageDir(
+  name: string,
+  source: string | undefined,
+  profileDir: string | undefined,
+  installAnchor: string | undefined,
+): string | undefined {
+  const localPath = localPathFromSource(source, profileDir)
+  if (localPath !== undefined && existsSync(localPath)) return localPath
+  const candidates: string[] = []
+  if (profileDir !== undefined) candidates.push(profileDir)
+  if (installAnchor !== undefined) candidates.push(dirname(installAnchor))
+  for (const anchor of candidates) {
+    try {
+      const requireFrom = createRequire(join(anchor, 'package.json'))
+      return dirname(requireFrom.resolve(`${name}/package.json`))
+    } catch {
+      // Try the next anchor.
+    }
+  }
+  return undefined
+}
+
+/**
  * Read one installed bundle's parsed manifest.
  * @param name - the bundle's package name.
  * @param source - the `source` spec `listBundles()` reports, when any.

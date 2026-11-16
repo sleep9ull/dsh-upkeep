@@ -543,6 +543,16 @@ idle
 - Client：元信息行加目标版本（含通道/stale）与上次检查；「立即检查」为主操作；行悬停显示不兼容需求明细。
 - 测试：40 个单测通过（新增 range 3 组、compat 5 条、feed 3 条、state 2 条、check 集成 1 条）。
 - 未验证：真机渲染（需刷新页面）；真实 registry 抓取（单测用注入 fetch，真机需重启 Host 后点「立即检查」验证）。
+### M2 已完成（2026-11-16）
+
+- `src/host/guides.ts`：解析安装版 `docs/upgrade-guide`（版本目录、frontmatter `description`、`## Change` / `## Migration`），按 `[from, to)` 选择；目标比安装版新时按 `dsh-v<target>` 标签从 GitHub 拉取缺失条目（上限 6 个版本 / 每版 40 条）。
+- `src/host/surfaces.ts`：机械扫描插件包——manifest（包引用 / `dsh.client.inject`）、bundle patch（row id、inject、config key）、源码（`@deepseek-ai/*` import、`ctx.<service>`、事件、工具/命令名、slot id），有文件数、大小、深度上限。
+- `src/host/match.ts`：按表面 token 在指南文本中的**标识符边界**命中打分（package/event/tool/slot/command 3、service 2、config/row 1），只保留有命中的条目并输出 `matchedSurfaces`。
+- `check` 抓完目标版本后：一次指南加载 + 逐「我的插件」扫描匹配，把 `impact`（命中数、版本、Top 条目）写进快照与该次报告；`status` 复用最近报告的 impact，不重复扫描。
+- 新 action `report.get`（面板/工具同一实现）：返回单个 bundle 的窗口、指南来源、匹配条目（含 Change/Migration 原文）与扫描清单；面板行悬停显示「N breaking changes (vX)」。
+- 测试：新增 guides 3 条、surfaces 1 条、match 2 条、check/report 集成 1 条；总计 47 个单测通过。
+- 限制：`persistence-schema.json` 差异未做；GitHub 拉取受网络与限额影响，失败时只用安装版指南并给出 warning；真机远端路径需重启后验证。
+
 
 
 ### M0.4 归属分组视图（2026-11-16）
