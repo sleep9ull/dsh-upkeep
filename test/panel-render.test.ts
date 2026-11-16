@@ -38,7 +38,7 @@ const { renderToStaticMarkup } = nodeRequire('react-dom/server') as {
 /** Load `dist/client.js` in a VM and return its module plus the locale tables. */
 function bootClient(): {
   module: { apply(ctx: unknown): void }
-  translate(id: string): (key: string, vars?: Record<string, string | number>) => string
+  translate(id: string, lang?: 'en' | 'zh'): (key: string, vars?: Record<string, string | number>) => string
 } {
   const source = readFileSync(new URL('../dist/client.js', import.meta.url), 'utf8')
   const dictionaries = new Map<string, Record<string, Record<string, string>>>()
@@ -75,10 +75,10 @@ function bootClient(): {
   }
 
   /** Translate like the host does: `{name}` substitution over the en table. */
-  const translate = (id: string): (key: string, vars?: Record<string, string | number>) => string => {
+  const translate = (id: string, lang: 'en' | 'zh' = 'en'): (key: string, vars?: Record<string, string | number>) => string => {
     return (key, vars) => {
       // Looked up per call: apply() registers the tables after it binds the translator.
-      const raw = dictionaries.get(id)?.en?.[key] ?? key
+      const raw = dictionaries.get(id)?.[lang]?.[key] ?? key
       if (vars === undefined) return raw
       return raw.replace(/\{(\w+)\}/g, (match, name: string) => (name in vars ? String(vars[name]) : match))
     }
@@ -219,8 +219,8 @@ test('the panel renders the ledger, its columns and the care sentence', () => {
   assert.match(markup, /Scheduled/)
   // The care row offers Upgrade; the healthy one does not.
   assert.equal((markup.match(/>Upgrade</g) ?? []).length, 1)
-  // The plugin with a task shows its cadence; the other offers Create.
-  assert.equal((markup.match(/Every 24h/g) ?? []).length, 1)
+  // The plugin with a task shows when it runs and how often; the other offers Create.
+  assert.match(markup, /\d{1,2}:\d{2}\s?(am|pm|AM|PM)? everyday/i)
   assert.equal((markup.match(/>Create</g) ?? []).length, 1)
   assert.doesNotMatch(markup, /New Scheduled/)
 })
@@ -267,4 +267,47 @@ test('the settings tab renders with the same data', () => {
   }))
   assert.match(markup, /upkeep-table/)
   assert.match(markup, /Open panel/)
+})
+
+test('the schedule cell reads as a time of day plus a cadence', () => {
+  const { module, translate } = bootClient()
+  const registrations = (module as unknown as { registrations: Map<string, unknown> }).registrations
+  const panel = registrations.get('main') as unknown as (props: unknown) => unknown
+  const mine = (SNAPSHOT.bundles[0] as unknown) as { name: string }
+
+  const render = (everySeconds: number, lang: 'en' | 'zh'): string => renderToStaticMarkup(React.createElement(panel, {
+    store: fakeStore({
+      phase: 'ready',
+      error: null,
+      data: {
+        ...SNAPSHOT,
+        bundles: [SNAPSHOT.bundles[0]],
+        ownership: { mine: 1, other: 0, unknown: 0 },
+        scheduled: {
+          available: true,
+          tasks: [{ bundle: mine.name, title: 'Upkeep: ' + mine.name, everySeconds, nextAt: '2026-11-17T00:00:00.000Z' }],
+        },
+      },
+    }),
+    t: translate('upkeep', lang),
+    locale: lang,
+  }))
+
+  const cases: Array<[number, RegExp]> = [
+    [86_400, /everyday/],
+    [7 * 86_400, /every week/],
+    [2 * 86_400, /every 2 days/],
+    [6 * 3_600, /every 6 hours/],
+    [3_600, /every hour/],
+    [30 * 60, /every 30 minutes/],
+  ]
+  for (const [everySeconds, pattern] of cases) {
+    const markup = render(everySeconds, 'en')
+    assert.match(markup, /\d{1,2}:\d{2}\s?(am|pm)/, `a clock time is shown for ${everySeconds}s`)
+    assert.match(markup, pattern, `the cadence reads correctly for ${everySeconds}s`)
+  }
+
+  // Chinese puts the cadence first: 每天 8:00.
+  const zh = render(86_400, 'zh')
+  assert.match(zh, /每天\s*\S*\d{1,2}:\d{2}/)
 })

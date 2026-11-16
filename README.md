@@ -56,7 +56,7 @@ Use the profile that runs your Web UI (`web` for an npm install, `desktop` for t
 | **Refresh** | The one button: re-reads the plugins, evaluates them against the running and target release, re-matches the migration guides, and stores one report. A cached target younger than `feedTtlMinutes` is reused, so a click does not always mean a registry round trip; the agent tool can pass `force` when it really wants a fresh answer. |
 | **Upgrade** | Appears only on your plugins that need care (never on a healthy row, even when the migration report matched something): confirm, choose worktree or not, and a session opens with the prepared prompt. |
 | **Verify / Create PR / Merge** | After the agent's edits: run the verification commands, then open a pull request, and merge only when enabled. |
-| **Scheduled** (per row) | A **Create** button on a row with no recurring check creates one for that single plugin; once it exists the cell shows the cadence instead (`Every 24h`), with the task name and next run in its tooltip. One plugin per click. |
+| **Scheduled** (per row) | A **Create** button on a row with no recurring check creates one for that single plugin; once it exists the cell reads as a time of day plus a cadence — `8:00am everyday`, `9:30am every 6 hours` — with the task name and next run in its tooltip. One plugin per click. |
 
 ## How compatibility is decided
 
@@ -82,7 +82,7 @@ The panel shows the count on the row tooltip; `report.get` returns the matched i
 
 ## Scheduled upkeep
 
-Each plugin can watch itself: press **Create** in its Scheduled cell to make a recurring task (default every 24 hours, `scheduleIntervalHours`) through DSH's own schedule service, delivering a prompt that checks that one plugin. The cell then shows the cadence, and its tooltip carries the task name and the next run. Pausing a task on the Automation tasks page brings **Create** back. Each delivery starts a session with a prompt that refreshes the target, runs the check and reports which of your plugins need care and which migration items matched. The task never edits repositories; upgrades remain behind the panel's buttons. Manage or pause it on DSH's **Automation tasks** page.
+Each plugin can watch itself: press **Create** in its Scheduled cell to make a recurring task (default every 24 hours, `scheduleIntervalHours`) through DSH's own schedule service, delivering a prompt that checks that one plugin. The cell then reads as a time of day plus how often (`8:00am everyday`), and its tooltip carries the task name and the next run. Pausing a task on the Automation tasks page brings **Create** back. Each delivery starts a session with a prompt that refreshes the target, runs the check and reports which of your plugins need care and which migration items matched. The task never edits repositories; upgrades remain behind the panel's buttons. Manage or pause it on DSH's **Automation tasks** page.
 
 ## Configuration
 

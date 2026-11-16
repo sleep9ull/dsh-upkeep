@@ -317,7 +317,13 @@ interface Window {
         mergeDone: 'Pull request merged.',
         scheduled: 'Scheduled',
         create: 'Create',
-        every: 'Every',
+        everyday: 'everyday',
+        everyHour: 'every hour',
+        everyWeek: 'every week',
+        everyNHours: 'every {n} hours',
+        everyNDays: 'every {n} days',
+        everyNMinutes: 'every {n} minutes',
+        scheduleAt: '{time} {cadence}',
         nextRun: 'Next',
         createScheduleHint: 'Create a recurring check for this plugin.',
         confirmSchedule: 'Create a recurring compatibility check for {bundle}?',
@@ -397,7 +403,13 @@ interface Window {
         mergeDone: 'PR 已合并。',
         scheduled: '定时',
         create: '创建',
-        every: '每',
+        everyday: '每天',
+        everyHour: '每小时',
+        everyWeek: '每周',
+        everyNHours: '每 {n} 小时',
+        everyNDays: '每 {n} 天',
+        everyNMinutes: '每 {n} 分钟',
+        scheduleAt: '{cadence} {time}',
         nextRun: '下次',
         createScheduleHint: '为这个插件创建周期性检查。',
         confirmSchedule: '为 {bundle} 创建周期性兼容性检查？',
@@ -766,7 +778,7 @@ interface Window {
           mine: boolean
           targetVersion: string | null
           taskFor: (name: string) => { everySeconds?: number | null; nextAt?: string | null; title?: string } | undefined
-          describeEvery: (seconds: number) => string
+          describeSchedule: (task: { everySeconds?: number | null; nextAt?: string | null }) => string
           scheduleAvailable: boolean
           onUpgrade?: ((bundle: BundleSummary) => void) | null
           onSchedule?: ((bundle: BundleSummary) => void) | null
@@ -832,11 +844,7 @@ interface Window {
                 if (options.mine) {
                   const name = typeof bundle.name === 'string' ? bundle.name : ''
                   const task = options.taskFor(name)
-                  const cadence = task !== undefined && typeof task.everySeconds === 'number'
-                    ? t('every') + ' ' + options.describeEvery(task.everySeconds)
-                    : task !== undefined
-                      ? t('scheduledOn')
-                      : ''
+                  const cadence = task !== undefined ? options.describeSchedule(task) : ''
                   const nextAt = task !== undefined && typeof task.nextAt === 'string' ? task.nextAt : ''
                   const hint = [
                     task !== undefined && typeof task.title === 'string' ? task.title : '',
@@ -895,13 +903,38 @@ interface Window {
         const taskFor = (name: string): typeof scheduledTasks[number] | undefined =>
           scheduledTasks.find(task => typeof task.bundle === 'string' && task.bundle === name)
           ?? scheduledTasks.find(task => task.bundle === null || task.bundle === undefined)
-        /** One short, locale-neutral cadence such as `24h` or `30m`. */
-        const describeEvery = (seconds: number): string => {
-          // Days only past a day, so a daily check reads "24h" rather than "1d".
-          if (seconds > 86_400 && seconds % 86_400 === 0) return String(seconds / 86_400) + 'd'
-          if (seconds >= 3_600 && seconds % 3_600 === 0) return String(seconds / 3_600) + 'h'
-          const minutes = Math.max(1, Math.round(seconds / 60))
-          return String(minutes) + 'm'
+        /** `8:00am` in English, `上午8:00` in Chinese: the task's local time of day. */
+        const clockOf = (iso: string): string => {
+          const at = Date.parse(iso)
+          if (Number.isNaN(at)) return ''
+          const text = new Date(at).toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+          })
+          // "8:00 AM" -> "8:00am": keep the letters, drop the space.
+          return locale === 'zh' ? text : text.replace(/\s*([AP])M$/i, (_match: string, half: string) => half.toLowerCase() + 'm')
+        }
+
+        /** `8:00am everyday` — the time it runs, then how often. */
+        const describeSchedule = (task: { everySeconds?: number | null; nextAt?: string | null }): string => {
+          const every = typeof task.everySeconds === 'number' ? task.everySeconds : null
+          const cadence = every === null
+            ? ''
+            : every === 86_400
+              ? t('everyday')
+              : every === 7 * 86_400
+                ? t('everyWeek')
+                : every > 86_400 && every % 86_400 === 0
+                  ? t('everyNDays', { n: every / 86_400 })
+                : every === 3_600
+                  ? t('everyHour')
+                  : every % 3_600 === 0
+                    ? t('everyNHours', { n: every / 3_600 })
+                    : t('everyNMinutes', { n: Math.max(1, Math.round(every / 60)) })
+          const time = typeof task.nextAt === 'string' ? clockOf(task.nextAt) : ''
+          if (time === '') return cadence
+          if (cadence === '') return time
+          return t('scheduleAt', { time, cadence })
         }
 
         // The sentence is the product: it answers "do my plugins need care" before any table.
@@ -1004,7 +1037,7 @@ interface Window {
                   mine: key === 'mine',
                   targetVersion,
                   taskFor,
-                  describeEvery,
+                  describeSchedule,
                   scheduleAvailable,
                   onUpgrade: key === 'mine' ? requestUpgrade : null,
                   onSchedule: key === 'mine' ? requestSchedule : null,
