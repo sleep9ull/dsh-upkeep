@@ -1,9 +1,8 @@
 # Changelog
 
-## 0.1.2
+## 0.1.0
 
-One release for the whole compatibility-loop work: monitoring, migration reports, targeted upgrades, human-confirmed delivery, and scheduled checks.
-
+First release, and the only version number so far: nothing was published before this, so the whole compatibility loop lands under `0.1.0` rather than being split across invented patch versions. Milestone numbers below are internal planning steps, not release lines.
 
 - **M1** compatibility monitoring: vendored DSH verdict, semver range satisfaction, target DSH version from the npm registry, stored check history, `status`/`check`/`bundles.list`.
 - **M2** migration reports: upgrade-guide parsing (installed + GitHub tag), bounded plugin surface scan, mechanical matching, `impact` and `report.get`.

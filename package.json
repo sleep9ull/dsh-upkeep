@@ -1,6 +1,6 @@
 {
   "name": "@sleep9ull/dsh-upkeep",
-  "version": "0.1.2",
+  "version": "0.1.0",
   "description": "DeepSeek Harness plugin: monitor your DSH plugins against the running and upcoming DSH releases, then run a targeted compatibility upgrade, verify it and open a pull request.",
   "license": "MIT",
   "type": "module",
