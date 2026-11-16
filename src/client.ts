@@ -489,7 +489,16 @@ interface Window {
 [data-upkeep] .upkeep-subtitle { margin: 3px 0 0; max-width: 64ch; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.55; }
 [data-upkeep] .upkeep-actions { display: flex; flex: none; gap: 8px; }
 [data-upkeep] .upkeep-actions .upkeep-btn[data-variant="primary"] { min-width: 7.4em; text-align: center; }
-[data-upkeep] .upkeep-scheduled { width: 1%; white-space: nowrap; }
+[data-upkeep] .upkeep-table { table-layout: fixed; }
+[data-upkeep] .upkeep-col-version { width: 84px; }
+[data-upkeep] .upkeep-col-status { width: 168px; }
+[data-upkeep] .upkeep-col-scheduled { width: 140px; }
+[data-upkeep] .upkeep-table th.upkeep-col-version,
+[data-upkeep] .upkeep-table td.upkeep-col-version,
+[data-upkeep] .upkeep-table th.upkeep-col-status,
+[data-upkeep] .upkeep-table td.upkeep-col-status,
+[data-upkeep] .upkeep-table th.upkeep-col-scheduled,
+[data-upkeep] .upkeep-table td.upkeep-col-scheduled { text-align: center; }
 [data-upkeep] .upkeep-modal-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 24px; background: color-mix(in srgb, var(--dsw-alias-label-primary) 26%, transparent); }
 [data-upkeep] .upkeep-modal { display: flex; flex-direction: column; gap: 10px; width: min(360px, 100%); padding: 18px 18px 16px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-lg, 10px); background: var(--dsw-alias-bg-overlay); box-shadow: 0 16px 40px color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent); }
 [data-upkeep] .upkeep-modal-title { margin: 0; font-size: 13px; font-weight: 600; }
@@ -531,7 +540,8 @@ interface Window {
 [data-upkeep] .upkeep-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 [data-upkeep] .upkeep-table th { padding: 5px 10px; text-align: left; font-weight: 500; color: var(--dsw-alias-label-secondary); white-space: nowrap; }
 [data-upkeep] .upkeep-table td { padding: 7px 10px; border-top: 1px solid var(--dsw-alias-border-l1); overflow-wrap: anywhere; }
-[data-upkeep] .upkeep-table td.upkeep-name { width: 60%; }
+[data-upkeep] .upkeep-table td.upkeep-scheduled { white-space: nowrap; }
+[data-upkeep] .upkeep-name > span { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 [data-upkeep] .upkeep-table tr[data-care="attention"] td:first-child { box-shadow: inset 2px 0 0 var(--dsw-alias-state-error-primary); }
 [data-upkeep] .upkeep-version { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
@@ -545,7 +555,7 @@ interface Window {
 
 [data-upkeep] .upkeep-empty { padding: 14px 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 [data-upkeep] .upkeep-muted { color: var(--dsw-alias-label-secondary); font-size: 11px; }
-[data-upkeep] .upkeep-care { display: flex; align-items: center; gap: 8px; }
+[data-upkeep] .upkeep-care { display: flex; align-items: center; justify-content: center; gap: 8px; }
 [data-upkeep] .upkeep-btn-xs { padding: 1px 8px; font-size: 10px; line-height: 1.5; }
 [data-upkeep] .upkeep-notice { display: flex; flex-direction: column; gap: 5px; padding: 6px 0 6px 12px; border-left: 2px solid var(--dsw-alias-brand-primary); font-size: 11px; line-height: 1.55; }
 [data-upkeep] .upkeep-notice-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -827,10 +837,10 @@ interface Window {
         if (bundles.length === 0) return h('div', { className: 'upkeep-empty' }, emptyText)
         const headers: Child[] = [
           h('th', { key: 'bundle' }, t('bundle')),
-          h('th', { key: 'version' }, t('version')),
-          h('th', { key: 'status' }, t('status')),
+          h('th', { key: 'version', className: 'upkeep-col-version' }, t('version')),
+          h('th', { key: 'status', className: 'upkeep-col-status' }, t('status')),
         ]
-        if (options.mine) headers.push(h('th', { key: 'scheduled', className: 'upkeep-scheduled' }, t('scheduled')))
+        if (options.mine) headers.push(h('th', { key: 'scheduled', className: 'upkeep-col-scheduled' }, t('scheduled')))
 
         return h('div', { className: 'upkeep-table-scroll' },
           h('table', { className: 'upkeep-table' },
@@ -870,8 +880,8 @@ interface Window {
                 const cells: Child[] = [
                   h('td', { key: 'name', className: 'upkeep-name' },
                     h('span', { title: detail }, bundle.name || t('unknown'))),
-                  h('td', { key: 'version' }, h('span', { className: 'upkeep-version' }, bundle.version || '—')),
-                  h('td', { key: 'status', className: 'upkeep-care' },
+                  h('td', { key: 'version', className: 'upkeep-col-version' }, h('span', { className: 'upkeep-version' }, bundle.version || '—')),
+                  h('td', { key: 'status', className: 'upkeep-care upkeep-col-status' },
                     options.mine ? careChip(bundle, t) : chip(status.label, status.state),
                     eligible && options.onUpgrade
                       ? h('button', {
@@ -890,7 +900,7 @@ interface Window {
                     task !== undefined && typeof task.title === 'string' ? task.title : '',
                     nextAt === '' || Number.isNaN(Date.parse(nextAt)) ? '' : t('nextRun') + ' ' + new Date(nextAt).toLocaleString(),
                   ].filter(part => part !== '').join(' · ')
-                  cells.push(h('td', { key: 'scheduled', className: 'upkeep-scheduled' },
+                  cells.push(h('td', { key: 'scheduled', className: 'upkeep-col-scheduled upkeep-scheduled' },
                     task !== undefined
                       ? h('span', { className: 'upkeep-cadence', title: hint }, cadence)
                       : options.onSchedule !== null && options.onSchedule !== undefined

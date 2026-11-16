@@ -112,7 +112,12 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   assert.doesNotMatch(client, /care === 'attention' \|\|/)
   // One status column: the live enabled flag moved into the row tooltip.
   assert.doesNotMatch(client, /t\('state'\)/)
-  assert.match(client, /h\('th', \{ key: 'status' \}, t\('status'\)\)/)
+  assert.match(client, /h\('th', \{ key: 'status', className: 'upkeep-col-status' \}, t\('status'\)\)/)
+  // The three trailing columns are fixed-width and centred.
+  assert.match(client, /table-layout: fixed/)
+  assert.match(client, /\.upkeep-col-version \{ width: 84px; \}/)
+  assert.match(client, /\.upkeep-col-status \{ width: 168px; \}/)
+  assert.match(client, /\.upkeep-col-scheduled \{ width: 140px; \}/)
   // The sidebar label carries the pending-care count; the glyph stays decorative.
   assert.match(client, /function careCountOf/)
   assert.match(client, /labelCareMany/)
