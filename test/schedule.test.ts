@@ -2,6 +2,8 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import {
   TASK_TITLE,
+  isKnownTimeZone,
+  normalizeTimeOfDay,
   parseUpkeepTitle,
   taskTitleFor,
   buildSchedulePrompt,
@@ -83,4 +85,21 @@ test('a bundle-scoped prompt names the plugin', () => {
   const prompt = buildSchedulePrompt('@sleep9ull/plugin')
   assert.match(prompt, /@sleep9ull\/plugin/)
   assert.match(prompt, /Do not modify any file/)
+})
+
+test('a chosen time of day is normalized to the service format', () => {
+  assert.equal(normalizeTimeOfDay('8:00'), '08:00:00')
+  assert.equal(normalizeTimeOfDay('08:5'), null)
+  assert.equal(normalizeTimeOfDay('08:05'), '08:05:00')
+  assert.equal(normalizeTimeOfDay('23:59'), '23:59:00')
+  assert.equal(normalizeTimeOfDay('23:59:30'), '23:59:30')
+  assert.equal(normalizeTimeOfDay('24:00'), null)
+  assert.equal(normalizeTimeOfDay('later'), null)
+})
+
+test('time zones are checked against the runtime', () => {
+  assert.equal(isKnownTimeZone('Asia/Shanghai'), true)
+  assert.equal(isKnownTimeZone('UTC'), true)
+  assert.equal(isKnownTimeZone('Mars/Olympus'), false)
+  assert.equal(isKnownTimeZone('  '), false)
 })

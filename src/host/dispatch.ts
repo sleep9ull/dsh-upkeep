@@ -47,7 +47,14 @@ import { fetchRemoteGuides, readInstalledGuides, type GuideSet } from './guides.
 import { summarizeMatches, matchGuides, type ImpactSummary, type GuideMatch } from './match.js'
 import { scanSurfaces, type SurfaceInventory } from './surfaces.js'
 import { createExecRunner, type ExecRunner } from './exec.js'
-import { createUpkeepTask, listUpkeepTasks, scheduleService, scheduledTaskViews } from './schedule.js'
+import {
+  createUpkeepTask,
+  isKnownTimeZone,
+  listUpkeepTasks,
+  normalizeTimeOfDay,
+  scheduleService,
+  scheduledTaskViews,
+} from './schedule.js'
 import {
   buildDeliveryText,
   commitWorkspace,
@@ -1038,8 +1045,22 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
           : config.scheduleIntervalHours
         const cwd = config.scheduleCwd === '' ? home : config.scheduleCwd
         const bundle = typeof input.bundle === 'string' && input.bundle.trim() !== '' ? input.bundle.trim() : undefined
-        const task = await createUpkeepTask(service, { intervalHours, cwd, ...(bundle === undefined ? {} : { bundle }) })
-        return { task, intervalHours, cwd }
+        // A wall-clock time turns the task into a daily one at that local time.
+        const rawTime = typeof input.time === 'string' ? input.time.trim() : ''
+        const parsed = rawTime === '' ? '' : normalizeTimeOfDay(rawTime)
+        if (parsed === null) throw new HubError('INVALID_INPUT', 'time must be HH:mm')
+        const timeOfDay = parsed === '' ? undefined : parsed
+        const rawZone = typeof input.timeZone === 'string' ? input.timeZone.trim() : ''
+        if (timeOfDay !== undefined && !isKnownTimeZone(rawZone)) {
+          throw new HubError('INVALID_INPUT', 'A known IANA timeZone is required with time')
+        }
+        const task = await createUpkeepTask(service, {
+          intervalHours,
+          cwd,
+          ...(bundle === undefined ? {} : { bundle }),
+          ...(timeOfDay === undefined ? {} : { timeOfDay, timeZone: rawZone }),
+        })
+        return { task, intervalHours, cwd, ...(timeOfDay === undefined ? {} : { time: timeOfDay, timeZone: rawZone }) }
       },
     },
     'schedule.list': {

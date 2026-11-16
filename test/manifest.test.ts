@@ -88,11 +88,16 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   assert.doesNotMatch(client, /newScheduled/)
   assert.match(client, /const requestSchedule = /)
   assert.match(client, /upkeep-cadence/)
+  // Creating a task asks for a time of day, defaulting to 08:00 local.
+  assert.match(client, /DEFAULT_SCHEDULE_TIME = '08:00'/)
+  assert.match(client, /type: 'time'/)
+  assert.match(client, /zoneOf\(\)/)
   // Values the tables read must be declared before the table is built: a temporal
   // dead zone here blanks the whole panel at runtime, which no type check catches.
   assert.ok(client.indexOf('const scheduledAll') < client.indexOf('const groups ='))
   assert.ok(client.indexOf('const careCount') < client.indexOf('const groups ='))
   assert.ok(client.indexOf('const requestUpgrade') < client.indexOf('const groups ='))
+  assert.ok(client.indexOf('const busy =') < client.indexOf('const groups ='))
   // M3: the panel can prepare an upgrade session and verify it afterwards.
   assert.match(client, /upgrade.prepare/)
   assert.match(client, /upgrade.verify/)

@@ -146,8 +146,8 @@ type Store = {
   createPr(runId: string): Promise<void>
   /** Merge the run's pull request (only when the Host allows merging). */
   merge(runId: string): Promise<void>
-  /** Create the recurring compatibility check for one plugin. */
-  createSchedule(bundle: string): Promise<void>
+  /** Create the daily compatibility check for one plugin at a local time. */
+  createSchedule(bundle: string, time: string): Promise<void>
 }
 
 /* ---- the Cordis services the plugin is applied to ---------------- */
@@ -213,6 +213,19 @@ interface Window {
       /** Remembered choice for the "other plugins" group; hidden until the reader opens it. */
       const OTHERS_OPEN_KEY = 'dsh.upkeep.othersExpanded'
       const NOTICE_WARNING_LIMIT = 6
+
+      /** The browser's IANA zone, which the Host stores with a chosen time. */
+      function zoneOf(): string {
+        try {
+          const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
+          return typeof zone === 'string' && zone !== '' ? zone : 'UTC'
+        } catch {
+          return 'UTC'
+        }
+      }
+
+      /** The time a new task starts at until the user changes it. */
+      const DEFAULT_SCHEDULE_TIME = '08:00'
 
       /** Keep only real, bounded warning strings from a Host answer. */
       function noticeWarnings(value: unknown): string[] {
@@ -317,6 +330,9 @@ interface Window {
         mergeDone: 'Pull request merged.',
         scheduled: 'Scheduled',
         create: 'Create',
+        save: 'Save',
+        cancel: 'Cancel',
+        scheduleTime: 'Time of day',
         everyday: 'everyday',
         everyHour: 'every hour',
         everyWeek: 'every week',
@@ -326,7 +342,6 @@ interface Window {
         scheduleAt: '{time} {cadence}',
         nextRun: 'Next',
         createScheduleHint: 'Create a recurring check for this plugin.',
-        confirmSchedule: 'Create a recurring compatibility check for {bundle}?',
         scheduleCreated: 'Scheduled for {bundle}. Manage it on the Automation tasks page.',
         scheduleUnavailable: 'The schedule service is not mounted in this profile.',
       }
@@ -403,6 +418,9 @@ interface Window {
         mergeDone: 'PR 已合并。',
         scheduled: '定时',
         create: '创建',
+        save: '保存',
+        cancel: '取消',
+        scheduleTime: '每天的时间',
         everyday: '每天',
         everyHour: '每小时',
         everyWeek: '每周',
@@ -412,7 +430,6 @@ interface Window {
         scheduleAt: '{cadence} {time}',
         nextRun: '下次',
         createScheduleHint: '为这个插件创建周期性检查。',
-        confirmSchedule: '为 {bundle} 创建周期性兼容性检查？',
         scheduleCreated: '已为 {bundle} 创建定时检查。可在 Automation tasks 页面管理。',
         scheduleUnavailable: '当前 profile 未挂载定时任务服务。',
       }
@@ -459,6 +476,8 @@ interface Window {
 [data-upkeep] .upkeep-actions { display: flex; flex: none; gap: 8px; }
 [data-upkeep] .upkeep-actions .upkeep-btn[data-variant="primary"] { min-width: 7.4em; text-align: center; }
 [data-upkeep] .upkeep-scheduled { width: 1%; white-space: nowrap; }
+[data-upkeep] .upkeep-schedule-editor { display: inline-flex; align-items: center; gap: 4px; }
+[data-upkeep] .upkeep-time { padding: 1px 4px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md, 6px); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; font-size: 10px; line-height: 1.5; }
 
 [data-upkeep] .upkeep-status { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.45; letter-spacing: -0.01em; }
 [data-upkeep].upkeep-page .upkeep-status { font-size: 19px; }
@@ -658,11 +677,11 @@ interface Window {
           }
         }
 
-        const createSchedule = async (bundle: string): Promise<void> => {
+        const createSchedule = async (bundle: string, time: string): Promise<void> => {
           publish({ phase: 'checking', data: state.data, error: null, notice: state.notice })
           let created = false
           try {
-            const answer = await callHost(ctx, 'schedule.create', { bundle, confirm: true })
+            const answer = await callHost(ctx, 'schedule.create', { bundle, time, timeZone: zoneOf(), confirm: true })
             if (!answer.ok) {
               publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'error', text: answer.error.code + ': ' + answer.error.message } })
               return
@@ -780,6 +799,11 @@ interface Window {
           taskFor: (name: string) => { everySeconds?: number | null; nextAt?: string | null; title?: string } | undefined
           describeSchedule: (task: { everySeconds?: number | null; nextAt?: string | null }) => string
           scheduleAvailable: boolean
+          busy: boolean
+          scheduleDraft: { bundle: string; time: string } | null
+          onDraftTime: (time: string) => void
+          onSaveSchedule: () => void
+          onCancelSchedule: () => void
           onUpgrade?: ((bundle: BundleSummary) => void) | null
           onSchedule?: ((bundle: BundleSummary) => void) | null
         },
@@ -853,15 +877,36 @@ interface Window {
                   cells.push(h('td', { key: 'scheduled', className: 'upkeep-scheduled' },
                     task !== undefined
                       ? h('span', { className: 'upkeep-cadence', title: hint }, cadence)
-                      : options.onSchedule !== null && options.onSchedule !== undefined
-                        ? h('button', {
-                            className: 'upkeep-btn upkeep-btn-xs',
-                            type: 'button',
-                            disabled: !options.scheduleAvailable,
-                            title: options.scheduleAvailable ? t('createScheduleHint') : t('scheduleUnavailable'),
-                            onClick: () => options.onSchedule?.(bundle),
-                          }, t('create'))
-                        : h('span', { className: 'upkeep-muted' }, '—')))
+                      : options.scheduleDraft !== null && options.scheduleDraft.bundle === name
+                        ? h('span', { className: 'upkeep-schedule-editor' },
+                            h('input', {
+                              className: 'upkeep-time',
+                              type: 'time',
+                              step: '60',
+                              value: options.scheduleDraft.time,
+                              'aria-label': t('scheduleTime'),
+                              onChange: (event: { target: { value: string } }) => options.onDraftTime(event.target.value),
+                            }),
+                            h('button', {
+                              className: 'upkeep-btn upkeep-btn-xs',
+                              type: 'button',
+                              disabled: options.busy || options.scheduleDraft.time === '',
+                              onClick: options.onSaveSchedule,
+                            }, t('save')),
+                            h('button', {
+                              className: 'upkeep-btn upkeep-btn-xs',
+                              type: 'button',
+                              onClick: options.onCancelSchedule,
+                            }, t('cancel')))
+                        : options.onSchedule !== null && options.onSchedule !== undefined
+                          ? h('button', {
+                              className: 'upkeep-btn upkeep-btn-xs',
+                              type: 'button',
+                              disabled: options.busy || !options.scheduleAvailable,
+                              title: options.scheduleAvailable ? t('createScheduleHint') : t('scheduleUnavailable'),
+                              onClick: () => options.onSchedule?.(bundle),
+                            }, t('create'))
+                          : h('span', { className: 'upkeep-muted' }, '—')))
                 }
                 return h('tr', { key: (bundle.name || 'bundle') + '-' + index, 'data-care': care }, ...cells)
               }))))
@@ -883,6 +928,7 @@ interface Window {
         }, [state.phase])
 
         // The other-authors group is collapsed by default and remembers being opened.
+        const [scheduleDraft, setScheduleDraft] = React.useState<{ bundle: string; time: string } | null>(null)
         const [othersOpen, setOthersOpen] = React.useState<boolean>(readOthersOpen)
         React.useEffect(() => { writeOthersOpen(othersOpen) }, [othersOpen])
 
@@ -894,6 +940,7 @@ interface Window {
         const otherBundles = bundles.filter(bundle => ownerOf(bundle) !== 'mine')
         const mineCount = rollup && typeof rollup.mine === 'number' ? rollup.mine : mineBundles.length
         const careCount = careCountOf(data)
+        const busy = loading || state.phase === 'checking' || state.phase === 'upgrading'
 
         // Declared before the tables: they read these while rendering.
         const scheduledInfo = data && data.scheduled ? data.scheduled : undefined
@@ -1039,16 +1086,31 @@ interface Window {
                   taskFor,
                   describeSchedule,
                   scheduleAvailable,
+                  busy,
+                  scheduleDraft,
+                  onDraftTime: (time: string) => {
+                    if (scheduleDraft !== null) setScheduleDraft({ bundle: scheduleDraft.bundle, time })
+                  },
+                  onSaveSchedule: saveSchedule,
+                  onCancelSchedule: () => setScheduleDraft(null),
                   onUpgrade: key === 'mine' ? requestUpgrade : null,
                   onSchedule: key === 'mine' ? requestSchedule : null,
                 }))
         }
 
+        /** Open the inline time picker on one row, seeded with the default time. */
         const requestSchedule = (bundle: BundleSummary): void => {
           const name = bundle.name || ''
           if (name === '') return
-          if (typeof window.confirm === 'function' && !window.confirm(t('confirmSchedule', { bundle: name }))) return
-          void store.createSchedule(name)
+          setScheduleDraft({ bundle: name, time: DEFAULT_SCHEDULE_TIME })
+        }
+
+        /** Save the picker: create the daily task at the chosen local time. */
+        const saveSchedule = (): void => {
+          if (scheduleDraft === null) return
+          const draft = scheduleDraft
+          setScheduleDraft(null)
+          void store.createSchedule(draft.bundle, draft.time)
         }
 
         const requestUpgrade = (bundle: BundleSummary): void => {
@@ -1077,7 +1139,6 @@ interface Window {
                 onToggle: () => setOthersOpen((open: boolean) => !open),
               }))
 
-        const busy = loading || state.phase === 'checking' || state.phase === 'upgrading'
         const actions = h('div', { className: 'upkeep-actions' },
           !page && openPanel
             ? h('button', { className: 'upkeep-btn', type: 'button', onClick: openPanel }, t('openPanel'))

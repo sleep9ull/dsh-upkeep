@@ -557,3 +557,37 @@ test('the snapshot reports the task that watches each plugin, with its cadence',
   const paused = await hub.call('status', {}, { caller: 'client' }) as ScheduledView
   assert.deepEqual(paused.scheduled.tasks, [])
 })
+
+test('schedule.create at a chosen time makes a daily task in that zone', async () => {
+  const requests: Array<Record<string, unknown>> = []
+  const schedule = {
+    create: async (request: unknown) => {
+      requests.push(request as Record<string, unknown>)
+      return { id: 'task-1', title: 'Upkeep: @sleep9ull/plugin' }
+    },
+    catalog: async () => [],
+  }
+  const hub = createHub(fakeContext({ schedule }), normalizeConfig(undefined), TEST_DEPS)
+
+  const created = await hub.call('schedule.create', {
+    confirm: true,
+    bundle: '@sleep9ull/plugin',
+    time: '8:00',
+    timeZone: 'Asia/Shanghai',
+  }, { caller: 'client' }) as { task: { title: string }; time: string; timeZone: string }
+
+  assert.equal(created.time, '08:00:00')
+  assert.equal(created.timeZone, 'Asia/Shanghai')
+  const timing = requests[0]?.timing as { kind: string; daily?: { time: string; time_zone: string } }
+  assert.equal(timing.kind, 'daily')
+  assert.deepEqual(timing.daily, { time: '08:00:00', time_zone: 'Asia/Shanghai' })
+
+  await assert.rejects(
+    () => hub.call('schedule.create', { confirm: true, time: '25:99', timeZone: 'UTC' }, { caller: 'client' }),
+    (error: unknown) => (error as { code?: string }).code === 'INVALID_INPUT',
+  )
+  await assert.rejects(
+    () => hub.call('schedule.create', { confirm: true, time: '08:00', timeZone: 'Mars/Olympus' }, { caller: 'client' }),
+    (error: unknown) => (error as { code?: string }).code === 'INVALID_INPUT',
+  )
+})

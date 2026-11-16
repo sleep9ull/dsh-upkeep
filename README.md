@@ -56,7 +56,7 @@ Use the profile that runs your Web UI (`web` for an npm install, `desktop` for t
 | **Refresh** | The one button: re-reads the plugins, evaluates them against the running and target release, re-matches the migration guides, and stores one report. A cached target younger than `feedTtlMinutes` is reused, so a click does not always mean a registry round trip; the agent tool can pass `force` when it really wants a fresh answer. |
 | **Upgrade** | Appears only on your plugins that need care (never on a healthy row, even when the migration report matched something): confirm, choose worktree or not, and a session opens with the prepared prompt. |
 | **Verify / Create PR / Merge** | After the agent's edits: run the verification commands, then open a pull request, and merge only when enabled. |
-| **Scheduled** (per row) | A **Create** button on a row with no recurring check creates one for that single plugin; once it exists the cell reads as a time of day plus a cadence — `8:00am everyday`, `9:30am every 6 hours` — with the task name and next run in its tooltip. One plugin per click. |
+| **Scheduled** (per row) | A **Create** button on a row with no recurring check opens a time picker seeded with 08:00 local (adjustable, saved with your IANA zone) and creates a daily check for that single plugin; once it exists the cell reads as a time of day plus a cadence — `8:00am everyday`, `9:30am every 6 hours` — with the task name and next run in its tooltip. One plugin per click. |
 
 ## How compatibility is decided
 

@@ -76,6 +76,27 @@ export function buildSchedulePrompt(bundle?: string): string {
   ].join('\n')
 }
 
+/** A wall-clock time of day, normalized to the service's `HH:mm:ss`. */
+export function normalizeTimeOfDay(value: string): string | null {
+  const match = /^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/.exec(value.trim())
+  if (match === null) return null
+  const hour = String(Number(match[1])).padStart(2, '0')
+  const minute = match[2]
+  const second = match[3] ?? '00'
+  return hour + ':' + minute + ':' + second
+}
+
+/** Whether the runtime knows this time zone. */
+export function isKnownTimeZone(value: string): boolean {
+  if (value.trim() === '') return false
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value })
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Clamp the interval to the schedule service's supported range. */
 export function clampIntervalSeconds(hours: number): number {
   const seconds = Math.round(hours * 3_600)
@@ -91,9 +112,15 @@ export function clampIntervalSeconds(hours: number): number {
  */
 export async function createUpkeepTask(
   service: ScheduleServiceLike,
-  options: { intervalHours: number; cwd: string; bundle?: string },
+  options: { intervalHours: number; cwd: string; bundle?: string; timeOfDay?: string; timeZone?: string },
 ): Promise<{ id: string | null; title: string; timing: Record<string, unknown> }> {
-  const timing = { kind: 'every', every_seconds: clampIntervalSeconds(options.intervalHours) }
+  // A chosen wall-clock time makes a daily task; otherwise the interval decides.
+  const daily = options.timeOfDay !== undefined && options.timeOfDay !== ''
+    ? normalizeTimeOfDay(options.timeOfDay)
+    : null
+  const timing: Record<string, unknown> = daily !== null
+    ? { kind: 'daily', daily: { time: daily, time_zone: options.timeZone ?? 'UTC' } }
+    : { kind: 'every', every_seconds: clampIntervalSeconds(options.intervalHours) }
   const title = taskTitleFor(options.bundle === undefined ? { kind: 'all' } : { kind: 'bundle', bundle: options.bundle })
   const created = await service.create({
     title,
