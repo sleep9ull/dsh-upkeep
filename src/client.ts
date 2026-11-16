@@ -195,17 +195,12 @@ interface Window {
         bundle: 'Bundle',
         version: 'Version',
         state: 'State',
-        rows: 'Rows',
         enabled: 'enabled',
         disabled: 'disabled',
         failed: 'load error',
         excluded: 'Excluded',
         officialRule: 'Official @deepseek-ai packages ship with DSH and are not monitored.',
-        owner: 'Owner',
         care: 'Care',
-        mine: 'Mine',
-        otherOwner: 'Other author',
-        unknownOwner: 'Unknown',
         needsCare: 'Needs care',
         healthy: 'Healthy',
         unknownCare: 'Unknown',
@@ -214,6 +209,8 @@ interface Window {
         groupMineHint: 'Matched against this machine identity',
         groupOthers: 'Other plugins',
         groupOthersHint: 'Other authors or unknown ownership',
+        groupOthersOther: 'Other authors',
+        groupOthersUnknown: 'Unknown ownership',
         noMine: 'No plugin here is recognized as yours yet. Set ownerHandles if that is wrong.',
         noOthers: 'No other plugins.',
         collapseOthers: 'Collapse other plugins',
@@ -246,17 +243,12 @@ interface Window {
         bundle: 'Bundle',
         version: '版本',
         state: '状态',
-        rows: '行数',
         enabled: '已启用',
         disabled: '已禁用',
         failed: '加载失败',
         excluded: '已排除',
         officialRule: '官方 @deepseek-ai 插件随 DSH 发布，不纳入监测。',
-        owner: '归属',
         care: '维护',
-        mine: '我的',
-        otherOwner: '他人',
-        unknownOwner: '未知',
         needsCare: '需维护',
         healthy: '正常',
         unknownCare: '未知',
@@ -265,6 +257,8 @@ interface Window {
         groupMineHint: '按本机身份识别',
         groupOthers: '其他插件',
         groupOthersHint: '他人或归属未知',
+        groupOthersOther: '他人',
+        groupOthersUnknown: '归属未知',
         noMine: '还没有识别到属于你的插件。若判断有误，请设置 ownerHandles。',
         noOthers: '没有其他插件。',
         collapseOthers: '收起其他插件',
@@ -316,11 +310,9 @@ interface Window {
 [data-upkeep] .upkeep-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 [data-upkeep] .upkeep-table th { padding: 5px 10px; text-align: left; font-weight: 500; color: var(--dsw-alias-label-secondary); white-space: nowrap; }
 [data-upkeep] .upkeep-table td { padding: 7px 10px; border-top: 1px solid var(--dsw-alias-border-l1); overflow-wrap: anywhere; }
-[data-upkeep] .upkeep-table th.upkeep-num, [data-upkeep] .upkeep-table td.upkeep-num { text-align: right; }
-[data-upkeep] .upkeep-table td.upkeep-name { width: 46%; }
+[data-upkeep] .upkeep-table td.upkeep-name { width: 60%; }
 [data-upkeep] .upkeep-table tr[data-care="attention"] td:first-child { box-shadow: inset 2px 0 0 var(--dsw-alias-state-error-primary); }
 [data-upkeep] .upkeep-version { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-[data-upkeep] .upkeep-rows { font-variant-numeric: tabular-nums; }
 
 [data-upkeep] .upkeep-chip { display: inline-flex; align-items: center; padding: 1px 7px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.5; white-space: nowrap; }
 [data-upkeep] .upkeep-chip[data-state="ok"] { border-color: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-state-success-primary); }
@@ -441,14 +433,6 @@ interface Window {
         return h('span', { className: 'upkeep-chip', 'data-state': state, title }, label)
       }
 
-      /** Authorship chip: mine / other author / unknown, with the evidence on hover. */
-      function ownerChip(bundle: BundleSummary, t: Translate): Child {
-        const status = bundle.owner && bundle.owner.status ? bundle.owner.status : 'unknown'
-        const evidence = bundle.owner && Array.isArray(bundle.owner.evidence) ? bundle.owner.evidence.join(' · ') : ''
-        if (status === 'mine') return chip(t('mine'), 'ok', evidence)
-        if (status === 'other') return chip(t('otherOwner'), 'warn', evidence)
-        return chip(t('unknownOwner'), 'warn', evidence)
-      }
 
       /** Maintenance chip for the author's own plugins; other authors get a dash. */
       function careChip(bundle: BundleSummary, t: Translate): Child {
@@ -462,11 +446,12 @@ interface Window {
 
       /** One bundle table; both groups reuse it so the columns stay identical. */
       /** One ledger table; both groups share it so columns cannot drift apart. */
+      /** One ledger table; both groups share it so columns cannot drift apart. */
       function renderBundleTable(
         bundles: BundleSummary[],
         t: Translate,
         emptyText: string,
-        options: { showOwner: boolean; showCare: boolean },
+        options: { showCare: boolean },
       ): Child {
         if (bundles.length === 0) return h('div', { className: 'upkeep-empty' }, emptyText)
         const headers: Child[] = [
@@ -474,9 +459,7 @@ interface Window {
           h('th', { key: 'version' }, t('version')),
           h('th', { key: 'state' }, t('state')),
         ]
-        if (options.showOwner) headers.push(h('th', { key: 'owner' }, t('owner')))
         if (options.showCare) headers.push(h('th', { key: 'care' }, t('care')))
-        headers.push(h('th', { key: 'rows', className: 'upkeep-num' }, t('rows')))
 
         return h('div', { className: 'upkeep-table-scroll' },
           h('table', { className: 'upkeep-table' },
@@ -485,16 +468,19 @@ interface Window {
               ...bundles.map((bundle, index) => {
                 const status = bundleState(bundle, t)
                 const care = bundle.maintenance && bundle.maintenance.state ? bundle.maintenance.state : 'unknown'
+                // The row count and install spec stay available on hover instead of taking a column:
+                // for a single-plugin bundle they say little, and the group already names the owner.
+                const detail = [
+                  typeof bundle.rowCount === 'number' ? String(bundle.rowCount) + ' ' + t('entries') : '',
+                  bundle.source || '',
+                ].filter(part => part !== '').join(' · ')
                 const cells: Child[] = [
                   h('td', { key: 'name', className: 'upkeep-name' },
-                    h('span', { title: bundle.source || '' }, bundle.name || t('unknown'))),
+                    h('span', { title: detail }, bundle.name || t('unknown'))),
                   h('td', { key: 'version' }, h('span', { className: 'upkeep-version' }, bundle.version || '—')),
                   h('td', { key: 'state' }, chip(status.label, status.state)),
                 ]
-                if (options.showOwner) cells.push(h('td', { key: 'owner' }, ownerChip(bundle, t)))
                 if (options.showCare) cells.push(h('td', { key: 'care' }, careChip(bundle, t)))
-                cells.push(h('td', { key: 'rows', className: 'upkeep-num upkeep-rows' },
-                  typeof bundle.rowCount === 'number' ? String(bundle.rowCount) : '—'))
                 return h('tr', { key: (bundle.name || 'bundle') + '-' + index, 'data-care': care }, ...cells)
               }))))
       }
@@ -614,17 +600,23 @@ interface Window {
             collapsible && !open
               ? null
               : renderBundleTable(rows, t, emptyText, {
-                  showOwner: key === 'others',
+                  
                   showCare: key === 'mine',
                 }))
         }
 
         const mineHint = careCount > 0 ? String(careCount) + ' ' + t('needsCare') : t('groupMineHint')
+        const otherAuthorCount = otherBundles.filter(bundle => ownerOf(bundle) === 'other').length
+        const unknownAuthorCount = otherBundles.filter(bundle => ownerOf(bundle) === 'unknown').length
+        const otherHintParts: string[] = []
+        if (otherAuthorCount > 0) otherHintParts.push(t('groupOthersOther') + ' ' + String(otherAuthorCount))
+        if (unknownAuthorCount > 0) otherHintParts.push(t('groupOthersUnknown') + ' ' + String(unknownAuthorCount))
+        const otherHint = otherHintParts.length > 0 ? otherHintParts.join(' · ') : t('groupOthersHint')
         const groups = !ready && bundles.length === 0
           ? h('div', { className: 'upkeep-empty' }, t('loading'))
           : h('div', { className: 'upkeep-groups' },
               group('mine', t('groupMine'), mineHint, mineBundles, t('noMine'), {}),
-              group('others', t('groupOthers'), t('groupOthersHint'), otherBundles, t('noOthers'), {
+              group('others', t('groupOthers'), otherHint, otherBundles, t('noOthers'), {
                 collapsible: true,
                 open: othersOpen,
                 onToggle: () => setOthersOpen((open: boolean) => !open),
