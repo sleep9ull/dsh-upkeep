@@ -30,7 +30,7 @@ Two doors, one implementation: everything the panel can do is available to the a
 | One-click upgrade in a session or worktree, layered verification | **Shipped (M3)** |
 | Human-confirmed PR / merge delivery | **Shipped (M4)** |
 | Recurring checks through DSH's schedule service | **Shipped (M5)** |
-| Release hardening, cross-version matrix, npm publish | Planned (M6) |
+| Hardening, config/i18n contract tests, release notes, repeatable full-test script | **Shipped (M6)** |
 
 The scope, decisions and acceptance criteria live in [docs/PLAN.md](docs/PLAN.md). This README describes only what is shipped today and what is explicitly planned.
 
@@ -152,6 +152,10 @@ npm run verify   # type-check both halves, build, run the unit tests, syntax-che
 | `npm run verify` | `check` + `test`. |
 
 Before installing into a running profile, rebuild: a linked install serves `dist/`. `docs/PLAN.md` holds the architecture and milestones; `docs/EVIDENCE.md` holds the verified DSH facts this plugin is built on; `AGENTS.md` holds the engineering contract for contributors and agents.
+
+## Full verification
+
+`npm run verify:full` runs the complete pass: unit and contract tests, package metadata, the CLI's composed desktop profile (proving this bundle's row reaches the Loader), and one real npm-registry read for the target version. Unsupported steps are reported as `skipped`, never as a silent pass.
 
 ## Notes and limitations
 

@@ -110,6 +110,7 @@ type StatusSnapshot = {
   target?: TargetVersion
   lastCheck?: LastCheckView
   delivery?: { allowMerge?: boolean; baseBranch?: string }
+  capabilities?: { schedule?: boolean; workspaceRegistry?: boolean }
   bundles?: BundleSummary[]
   plugins?: { entryCount?: number | null }
   excluded?: { bundles?: number; entries?: number }
@@ -299,6 +300,7 @@ interface Window {
         scheduleCheck: 'Schedule check',
         confirmSchedule: 'Create a recurring compatibility check?',
         scheduleCreated: 'Scheduled: {title}. Manage it on the Automation tasks page.',
+        scheduleUnavailable: 'The schedule service is not mounted in this profile.',
       }
 
       const zh: Record<string, string> = {
@@ -374,6 +376,7 @@ interface Window {
         scheduleCheck: '定时检查',
         confirmSchedule: '创建一个周期性兼容性检查任务？',
         scheduleCreated: '已创建：{title}。可在 Automation tasks 页面管理。',
+        scheduleUnavailable: '当前 profile 未挂载定时任务服务。',
       }
 
       const CSS = `
@@ -913,7 +916,8 @@ interface Window {
           h('button', {
             className: 'upkeep-btn',
             type: 'button',
-            disabled: busy,
+            disabled: busy || (data && data.capabilities ? data.capabilities.schedule === false : false),
+            title: data && data.capabilities && data.capabilities.schedule === false ? t('scheduleUnavailable') : undefined,
             onClick: () => {
               if (typeof window.confirm !== 'function' || window.confirm(t('confirmSchedule'))) void store.createSchedule()
             },

@@ -277,6 +277,8 @@ export interface StatusSnapshot {
   excluded: { bundles: number; entries: number }
   /** Delivery policy the panel needs to render the right buttons. */
   delivery: { allowMerge: boolean; baseBranch: string }
+  /** Optional Host services the profile actually mounted. */
+  capabilities: { schedule: boolean; workspaceRegistry: boolean }
   /** Authorship rollup plus the identity it was matched against. */
   ownership: {
     mine: number
@@ -493,6 +495,19 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
   })
   const exec = deps.exec ?? createExecRunner()
   let startupTimer: ReturnType<typeof setTimeout> | undefined
+  /** One long-running operation at a time: two checks or an upgrade must not interleave state writes. */
+  let busy: 'check' | 'upgrade' | null = null
+
+  /** Run one exclusive operation, or fail fast with a stable code. */
+  async function exclusive<T>(label: 'check' | 'upgrade', operation: () => Promise<T>): Promise<T> {
+    if (busy !== null) throw new HubError('BUSY', `A ${busy} operation is already running; wait for it to finish.`)
+    busy = label
+    try {
+      return await operation()
+    } finally {
+      busy = null
+    }
+  }
 
   /** Resolve one monitored bundle listing by package name. */
   async function monitoredListing(name: string): Promise<BundleListing | undefined> {
@@ -680,6 +695,10 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
       profile: { name: profile?.name ?? null, dir: profile?.dir ?? null },
       target,
       delivery: { allowMerge: config.allowMerge, baseBranch: config.defaultBaseBranch },
+      capabilities: {
+        schedule: scheduleService(ctx) !== undefined,
+        workspaceRegistry: isRecord(ctx.get('workspaceRegistry')) && typeof (ctx.get('workspaceRegistry') as Record<string, unknown>).create === 'function',
+      },
       ...(lastCheckView(state) === undefined ? {} : { lastCheck: lastCheckView(state) }),
       bundles,
       plugins: { entryCount: live.monitored },
@@ -781,7 +800,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     check: {
       kind: 'read',
       description: 'Refresh the target DSH version from the registry, evaluate every bundle and store one report.',
-      run: async (_input, call) => await runCheck(call),
+      run: async (_input, call) => await exclusive('check', async () => await runCheck(call)),
     },
     'report.get': {
       kind: 'read',
@@ -810,7 +829,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     'upgrade.prepare': {
       kind: 'write',
       description: 'Prepare a targeted upgrade: match the guides, optionally create a worktree, register its workspace and return the Session prompt.',
-      run: async (input) => {
+      run: async (input) => exclusive('upgrade', async () => {
         if (input.confirm !== true) throw new HubError('CONFIRM_REQUIRED', 'Preparing an upgrade needs confirm: true.')
         const name = typeof input.bundle === 'string' ? input.bundle.trim() : ''
         if (name === '') throw new HubError('INVALID_INPUT', 'upgrade.prepare needs a bundle name')
@@ -869,7 +888,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
         const warnings = [...loaded.warnings, ...analysis.warnings, ...prepared.warnings]
         if (repo.dirty > 0) warnings.push(`The repository has ${repo.dirty} uncommitted change(s); the worktree starts from HEAD.`)
         return { run, from: status.dsh.runtimeVersion, to: status.target.version, matches: analysis.matches, verifyCommands, warnings }
-      },
+      }),
     },
     'upgrade.verify': {
       kind: 'write',

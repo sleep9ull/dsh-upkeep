@@ -30,7 +30,7 @@
 | 会话或 worktree 中的一键升级、分层验证 | **已交付（M3）** |
 | 人工确认的 PR / 合并交付 | **已交付（M4）** |
 | 通过 DSH 定时任务做周期检查 | **已交付（M5）** |
-| 发布加固、跨版本矩阵、npm 发布 | 计划中（M6） |
+| 加固、配置/i18n 契约测试、发布说明、可重复全量测试脚本 | **已交付（M6）** |
 
 范围、设计决策与验收标准见 [docs/PLAN.md](docs/PLAN.md)。本 README 只描述**当前已交付**的能力与**明确计划**的能力。
 
@@ -152,6 +152,10 @@ npm run verify   # 两端类型检查、构建、运行单测、客户端脚本�
 | `npm run verify` | `check` + `test`。 |
 
 装进运行中的 profile 之前先重新构建：link 安装直接服务 `dist/`。架构与里程碑在 `docs/PLAN.md`，经过核实的 DSH 事实在 `docs/EVIDENCE.md`，面向贡献者与 agent 的工程契约在 `AGENTS.md`。
+
+## 全量测试
+
+`npm run verify:full` 会跑完整一遍：单测与契约测试、包元数据、CLI 组合出的 desktop profile（确认本 bundle 的 row 进入 Loader），以及一次真实的 npm registry 目标版本读取。环境不支持的步骤会标记为 `skipped`，不会静默通过。
 
 ## 注意事项
 

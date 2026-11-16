@@ -582,6 +582,16 @@ idle
 - Client：面板操作区新增「定时检查」，二次确认后创建并提示任务标题；任务本身在 DSH 的 Automation tasks 页面管理。
 - 测试：schedule 单测 5 条 + Hub（confirm 门、请求形状、列表过滤、SCHEDULE_UNAVAILABLE 降级）2 条；总计 67 个单测通过。
 - 边界：未做暂停/删除（交给 DSH 自带任务页）；投递需要 Host 在运行；目标会话被归档会随 DSH 语义删除任务。
+### M6 已完成（2026-11-16）
+
+- **并发保护**：`check` 与 `upgrade.prepare` 互斥（`BUSY`），避免交错写状态文件。
+- **能力探测**：快照新增 `capabilities`（schedule / workspaceRegistry），面板在服务缺失时禁用对应按钮并给出说明；`SCHEDULE_UNAVAILABLE` / `WORKSPACE_UNAVAILABLE` 保持显式降级。
+- **配置契约**：`test/config.test.ts` 覆盖全部配置默认值与边界（target 通道、TTL、保留条数、runs、base 分支、allowMerge、schedule、owner 列表、verifyCommands 多行解析）。
+- **i18n 契约**：manifest 测试比较 en / zh 字典键集合，防止文案单边漂移。
+- **发布元数据**：版本升至 `0.6.0`，新增 `CHANGELOG.md`（M1–M6 摘要），`files` 纳入变更记录与脚本。
+- **可重复全量测试**：`scripts/full-test.mjs` + `npm run verify:full`——单测/契约 → 包元数据 → `dsh --profile desktop --dump-config` 组合配置（确认 upkeep row 进入 Loader）→ 真实 npm registry 目标版本读取；环境不支持时标记 `skipped` 而不是静默通过。
+- 测试：70 个单测通过；全量脚本结果见下。
+
 
 
 

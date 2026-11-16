@@ -19,7 +19,7 @@
 
 ## 当前状态
 
-进度、验收标准和已确认决策只在 [PLAN §10–§11](docs/PLAN.md) 维护：M0（脚手架 + 真机激活）、M1（兼容监测）、M2（迁移报告）、M3（定向升级与验证）已完成；M4（交付）、M5（定时巡检）已完成，M6（加固与发布）进行中。本文件只写不随里程碑变化的规则，避免两处状态各自漂移。
+进度、验收标准和已确认决策只在 [PLAN §10–§11](docs/PLAN.md) 维护：M0（脚手架 + 真机激活）、M1（兼容监测）、M2（迁移报告）、M3（定向升级与验证）已完成；M0–M6 全部完成（0.6.0）。本文件只写不随里程碑变化的规则，避免两处状态各自漂移。
 
 ## Layout
 
@@ -42,6 +42,7 @@
 | `src/host/upgrade.ts` | 升级闭环：prompt 组装、验证命令推导、git 仓库探测、worktree 准备、逐命令验证。 |
 | `src/host/deliver.ts` | 交付：preview（分支/dirty/ahead/diff/gh 状态）、commit、push、`gh pr create`、`gh pr merge`、worktree 清理；全部有界、argv 数组、确认门。 |
 | `src/host/schedule.ts` | 周期检查：结构化读取 `ctx.schedule`，映射 `every` 定时与 `new_once` 目标；间隔钳制、任务标题前缀过滤。 |
+| `scripts/full-test.mjs` | 可重复全量测试：单测/契约 → 包元数据 → CLI `--dump-config` 组合配置 → 真实 registry 目标版本；不支持的环境记为 skipped。 |
 | `src/client.ts` | Web 半：**一段编译脚本**（`module: none`，无 import/export），注册一级侧栏面板（`main` key + `sidebar.panellist` 图标，id `dsh-upkeep`）与 Plugins 设置页分页（同一 id，二级入口）；React 由 loader 的 `require` 提供。 |
 | `locale/en.json`、`locale/zh.json` | 插件展示元数据（`meta.title/description/detail`）。面板内文案在 `src/client.ts` 的 `en`/`zh` 字典。 |
 | `cordis.patch.yml` | bundle patch：插入 row `upkeep`（`@sleep9ull/dsh-upkeep`）及其 config。 |
@@ -73,6 +74,7 @@
 14. **归属判定有证据、可配置、未知就是未知。** `mine/other/unknown` 只能由 `src/host/owner.ts` 产出；每条判定带证据 token（`scope:`、`author:`、`repo:`、`remote:`、`local-checkout`、`no-metadata`），身份来自 `ownerHandles`/`ownerEmails` 配置、`~/.gitconfig` 与 gh 登录；没有信号时保持 `unknown`，绝不默认"是我的"。*检查：* owner 单测覆盖四类证据与"无元数据不猜测"；无身份时状态带警告且 `ownership` 全为 unknown。
 15. **目标版本不迷信 `latest`。** 目标版本只来自「配置的精确版本 / 桌面通道映射的 dist-tag / 已发布最大 semver」，`dist-tags.latest` 在 rc 周期会滞后；读到缓存标记 stale，读不到就是未知。*检查：* feed 单测覆盖 channel 映射、最大 semver 回退与 registry 失败回退。
 16. **报告只呈现有命中的条目。** `report.get` 与 `impact` 的每条命中都必须能指回具体的 `matchedSurfaces`；扫描与远端拉取都有上限，失败时降级为安装版指南并给出 warning，不假装完整。
+17. **同一时间只跑一个 check 或 upgrade。** 长操作必须先拿互斥锁，第二个调用返回 `BUSY`；状态文件只由一个操作写入。*检查：* dispatch 的 `exclusive()` 包裹 check 与 upgrade.prepare；并发调用返回稳定错误码。
 
 ## 新增一个 operation
 
@@ -111,7 +113,7 @@
 - **实验包默认不在 desktop profile**（worktree/forge）。用能力探测 + Host `git`/`gh` 降级，别硬依赖。
 - **客户端半不是可选装饰。** 没有它就没有角标与列表，后台检查的结果用户看不到。
 - **`.asar` 里的源码**：`read` 工具能读；原生 `ls`/`grep`/`node` 不能，需 `ELECTRON_RUN_AS_NODE=1 "$DSH_NODE_EXECUTABLE" -e '...'`。
-- **CLI 实验台**：`ELECTRON_RUN_AS_NODE=1 "$DSH_NODE_EXECUTABLE" "$DSH_INSTALL_DIR/lib/bin.js" --version`；`--dump-config` 组合 profile，`headless` 真实启动。`pnpm` 不在 PATH，Desktop 的 launcher 安装自带；实验台需要时用 `load_workspace_dependencies`。
+- **CLI 实验台**：`ELECTRON_RUN_AS_NODE=1 "$DSH_NODE_EXECUTABLE" "$DSH_INSTALL_DIR/lib/bin.js" --version`；`--dump-config` 组合 profile，`headless` 真实启动。**Desktop 运行时 `--profile desktop` 被 Electron 独占**，dump 会报 "managed exclusively by the Electron application"——实验台请用临时 `DSH_HOME` 或非 desktop profile。`pnpm` 不在 PATH，Desktop 的 launcher 安装自带；实验台需要时用 `load_workspace_dependencies`。
 
 ## DSH 升级时（dogfooding）
 

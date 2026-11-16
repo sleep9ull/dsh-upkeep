@@ -56,7 +56,7 @@ test('status reads the runtime version, profile and bundles', async () => {
   }), normalizeConfig(undefined), TEST_DEPS)
 
   const status = await hub.call('status', {}, { caller: 'client' }) as {
-    plugin: { version: string }
+    plugin: { name: string; version: string }
     dsh: { runtimeVersion: string | null }
     profile: { name: string | null }
     bundles: Array<{ name: string; enabled: boolean; rowCount: number; error: { code: string } | null }>
@@ -64,8 +64,9 @@ test('status reads the runtime version, profile and bundles', async () => {
     warnings: string[]
   }
 
-  assert.equal(status.plugin.version, '0.1.0')
-  assert.equal(status.dsh.runtimeVersion, '0.1.0')
+  assert.match(status.plugin.version, /^\d+\.\d+\.\d+$/)
+  assert.equal(status.plugin.name, '@sleep9ull/dsh-upkeep')
+  assert.match(status.dsh.runtimeVersion ?? '', /^\d+\.\d+\.\d+/)
   assert.equal(status.profile.name, 'desktop')
   assert.equal(status.bundles.length, 2)
   assert.equal(status.bundles[0]?.rowCount, 2)

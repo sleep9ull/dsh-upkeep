@@ -104,3 +104,14 @@ test('both READMEs exist, link to each other, and ship with their license', () =
   assert.equal(typeof manifest.repository?.url, 'string')
   assert.equal(readFileSync(new URL('../LICENSE', import.meta.url), 'utf8').split('\n')[0], 'MIT License')
 })
+
+test('the client dictionaries carry the same keys', () => {
+  const source = readFileSync(new URL('../src/client.ts', import.meta.url), 'utf8')
+  const block = (name: string): string => {
+    const match = new RegExp('const ' + name + ': Record<string, string> = \\{([\\s\\S]*?)\\n      \\}').exec(source)
+    if (match === null) throw new Error('dictionary not found: ' + name)
+    return match[1]
+  }
+  const keys = (text: string): string[] => [...text.matchAll(/^\s{8}([A-Za-z0-9]+):/gm)].map(match => match[1]).sort()
+  assert.deepEqual(keys(block('en')), keys(block('zh')))
+})
