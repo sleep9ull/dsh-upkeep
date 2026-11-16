@@ -75,7 +75,9 @@
     "url": "https://github.com/sleep9ull/dsh-upkeep/issues"
   },
   "devDependencies": {
+    "@types/jsdom": "^30.0.0",
     "@types/node": "^24.19.2",
+    "jsdom": "^29.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.9.3"

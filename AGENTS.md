@@ -46,7 +46,7 @@
 | `src/client.ts` | Web 半：**一段编译脚本**（`module: none`，无 import/export），注册一级侧栏面板（`main` key + `sidebar.panellist` 图标，id `dsh-upkeep`）与 Plugins 设置页分页（同一 id，二级入口）；React 由 loader 的 `require` 提供。 |
 | `locale/en.json`、`locale/zh.json` | 插件展示元数据（`meta.title/description/detail`）。面板内文案在 `src/client.ts` 的 `en`/`zh` 字典。 |
 | `cordis.patch.yml` | bundle patch：插入 row `upkeep`（`@sleep9ull/dsh-upkeep`）及其 config。 |
-| `test/*.test.ts` | 对 `dist/` 运行的单测（`npm test` 先构建）；`test/panel-render.test.ts` 在 VM 里跑 `dist/client.js` 并用 react-dom/server 真渲染面板，抓类型检查抓不到的运行时错误。 |
+| `test/*.test.ts` | 对 `dist/` 运行的单测（`npm test` 先构建）；`test/panel-render.test.ts` 在 VM 里跑 `dist/client.js` 并用 react-dom/server 真渲染面板；`test/panel-interaction.test.ts` 用 jsdom + react-dom/client 真点击按钮，验证需要状态与事件的路径（如调度弹窗）。 |
 | `docs/` | PLAN（范围/决策）、EVIDENCE（DSH 事实）、DETAIL（用户可见说明）。 |
 | `README.md` / `README.zh.md` | README 以英文为默认（`README.md`），中文版 `README.zh.md` 顶部互相切换；只写已交付与明确计划的能力。 |
 | `LICENSE` | MIT；与 `package.json` 的 `license` 字段一致。 |

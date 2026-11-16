@@ -8,6 +8,14 @@
 type Child = unknown
 type PostChildren = Child | Child[]
 
+/** The slice of a DOM event the panel reads. */
+type UiEvent = {
+  key?: string
+  target?: { value?: string }
+  currentTarget?: unknown
+  stopPropagation?: () => void
+}
+
 type ElementProps = {
   [key: string]: unknown
   children?: PostChildren
@@ -18,7 +26,9 @@ type ElementProps = {
   title?: string
   type?: string
   disabled?: boolean
-  onClick?: () => void
+  onClick?: (event: UiEvent) => void
+  onChange?: (event: UiEvent) => void
+  onKeyDown?: (event: UiEvent) => void
 }
 
 type VNode = { type: unknown; props: ElementProps }
@@ -333,6 +343,8 @@ interface Window {
         save: 'Save',
         cancel: 'Cancel',
         scheduleTime: 'Time of day',
+        scheduleTitle: 'Schedule a compatibility check',
+        scheduleHint: 'The task runs every day at this local time and reports which plugins need care.',
         everyday: 'everyday',
         everyHour: 'every hour',
         everyWeek: 'every week',
@@ -421,6 +433,8 @@ interface Window {
         save: '保存',
         cancel: '取消',
         scheduleTime: '每天的时间',
+        scheduleTitle: '创建定时兼容性检查',
+        scheduleHint: '任务每天在这个本地时间运行，并汇报哪些插件需要维护。',
         everyday: '每天',
         everyHour: '每小时',
         everyWeek: '每周',
@@ -476,7 +490,13 @@ interface Window {
 [data-upkeep] .upkeep-actions { display: flex; flex: none; gap: 8px; }
 [data-upkeep] .upkeep-actions .upkeep-btn[data-variant="primary"] { min-width: 7.4em; text-align: center; }
 [data-upkeep] .upkeep-scheduled { width: 1%; white-space: nowrap; }
-[data-upkeep] .upkeep-schedule-editor { display: inline-flex; align-items: center; gap: 4px; }
+[data-upkeep] .upkeep-modal-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 24px; background: color-mix(in srgb, var(--dsw-alias-label-primary) 26%, transparent); }
+[data-upkeep] .upkeep-modal { display: flex; flex-direction: column; gap: 10px; width: min(360px, 100%); padding: 18px 18px 16px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-lg, 10px); background: var(--dsw-alias-bg-overlay); box-shadow: 0 16px 40px color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent); }
+[data-upkeep] .upkeep-modal-title { margin: 0; font-size: 13px; font-weight: 600; }
+[data-upkeep] .upkeep-modal-line { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 11px; overflow-wrap: anywhere; }
+[data-upkeep] .upkeep-modal-field { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
+[data-upkeep] .upkeep-modal-hint { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 10.5px; line-height: 1.5; }
+[data-upkeep] .upkeep-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
 [data-upkeep] .upkeep-time { padding: 1px 4px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md, 6px); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; font-size: 10px; line-height: 1.5; }
 
 [data-upkeep] .upkeep-status { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.45; letter-spacing: -0.01em; }
@@ -800,10 +820,6 @@ interface Window {
           describeSchedule: (task: { everySeconds?: number | null; nextAt?: string | null }) => string
           scheduleAvailable: boolean
           busy: boolean
-          scheduleDraft: { bundle: string; time: string } | null
-          onDraftTime: (time: string) => void
-          onSaveSchedule: () => void
-          onCancelSchedule: () => void
           onUpgrade?: ((bundle: BundleSummary) => void) | null
           onSchedule?: ((bundle: BundleSummary) => void) | null
         },
@@ -877,36 +893,15 @@ interface Window {
                   cells.push(h('td', { key: 'scheduled', className: 'upkeep-scheduled' },
                     task !== undefined
                       ? h('span', { className: 'upkeep-cadence', title: hint }, cadence)
-                      : options.scheduleDraft !== null && options.scheduleDraft.bundle === name
-                        ? h('span', { className: 'upkeep-schedule-editor' },
-                            h('input', {
-                              className: 'upkeep-time',
-                              type: 'time',
-                              step: '60',
-                              value: options.scheduleDraft.time,
-                              'aria-label': t('scheduleTime'),
-                              onChange: (event: { target: { value: string } }) => options.onDraftTime(event.target.value),
-                            }),
-                            h('button', {
-                              className: 'upkeep-btn upkeep-btn-xs',
-                              type: 'button',
-                              disabled: options.busy || options.scheduleDraft.time === '',
-                              onClick: options.onSaveSchedule,
-                            }, t('save')),
-                            h('button', {
-                              className: 'upkeep-btn upkeep-btn-xs',
-                              type: 'button',
-                              onClick: options.onCancelSchedule,
-                            }, t('cancel')))
-                        : options.onSchedule !== null && options.onSchedule !== undefined
-                          ? h('button', {
-                              className: 'upkeep-btn upkeep-btn-xs',
-                              type: 'button',
-                              disabled: options.busy || !options.scheduleAvailable,
-                              title: options.scheduleAvailable ? t('createScheduleHint') : t('scheduleUnavailable'),
-                              onClick: () => options.onSchedule?.(bundle),
-                            }, t('create'))
-                          : h('span', { className: 'upkeep-muted' }, '—')))
+                      : options.onSchedule !== null && options.onSchedule !== undefined
+                        ? h('button', {
+                            className: 'upkeep-btn upkeep-btn-xs',
+                            type: 'button',
+                            disabled: options.busy || !options.scheduleAvailable,
+                            title: options.scheduleAvailable ? t('createScheduleHint') : t('scheduleUnavailable'),
+                            onClick: () => options.onSchedule?.(bundle),
+                          }, t('create'))
+                        : h('span', { className: 'upkeep-muted' }, '—')))
                 }
                 return h('tr', { key: (bundle.name || 'bundle') + '-' + index, 'data-care': care }, ...cells)
               }))))
@@ -928,7 +923,8 @@ interface Window {
         }, [state.phase])
 
         // The other-authors group is collapsed by default and remembers being opened.
-        const [scheduleDraft, setScheduleDraft] = React.useState<{ bundle: string; time: string } | null>(null)
+        const [scheduleTarget, setScheduleTarget] = React.useState<string | null>(null)
+        const [scheduleTime, setScheduleTime] = React.useState<string>(DEFAULT_SCHEDULE_TIME)
         const [othersOpen, setOthersOpen] = React.useState<boolean>(readOthersOpen)
         React.useEffect(() => { writeOthersOpen(othersOpen) }, [othersOpen])
 
@@ -941,6 +937,7 @@ interface Window {
         const mineCount = rollup && typeof rollup.mine === 'number' ? rollup.mine : mineBundles.length
         const careCount = careCountOf(data)
         const busy = loading || state.phase === 'checking' || state.phase === 'upgrading'
+
 
         // Declared before the tables: they read these while rendering.
         const scheduledInfo = data && data.scheduled ? data.scheduled : undefined
@@ -1087,31 +1084,71 @@ interface Window {
                   describeSchedule,
                   scheduleAvailable,
                   busy,
-                  scheduleDraft,
-                  onDraftTime: (time: string) => {
-                    if (scheduleDraft !== null) setScheduleDraft({ bundle: scheduleDraft.bundle, time })
-                  },
-                  onSaveSchedule: saveSchedule,
-                  onCancelSchedule: () => setScheduleDraft(null),
                   onUpgrade: key === 'mine' ? requestUpgrade : null,
                   onSchedule: key === 'mine' ? requestSchedule : null,
                 }))
         }
 
-        /** Open the inline time picker on one row, seeded with the default time. */
+        /** Open the modal for one plugin, seeded with the default time. */
         const requestSchedule = (bundle: BundleSummary): void => {
           const name = bundle.name || ''
           if (name === '') return
-          setScheduleDraft({ bundle: name, time: DEFAULT_SCHEDULE_TIME })
+          setScheduleTime(DEFAULT_SCHEDULE_TIME)
+          setScheduleTarget(name)
         }
 
-        /** Save the picker: create the daily task at the chosen local time. */
+        const closeSchedule = (): void => setScheduleTarget(null)
+
+        /** Save the modal: create the daily task at the chosen local time. */
         const saveSchedule = (): void => {
-          if (scheduleDraft === null) return
-          const draft = scheduleDraft
-          setScheduleDraft(null)
-          void store.createSchedule(draft.bundle, draft.time)
+          if (scheduleTarget === null || scheduleTime === '') return
+          const target = scheduleTarget
+          const time = scheduleTime
+          setScheduleTarget(null)
+          void store.createSchedule(target, time)
         }
+
+        /**
+         * The scheduling dialog. It renders inside the panel tree because the client
+         * half has no react-dom (no portal), so it is pinned to the viewport instead.
+         */
+        const scheduleModal = scheduleTarget === null
+          ? null
+          : h('div', {
+              className: 'upkeep-modal-backdrop',
+              onClick: (event: UiEvent) => {
+                if (event.target === event.currentTarget) closeSchedule()
+              },
+            },
+              h('div', {
+                className: 'upkeep-modal',
+                role: 'dialog',
+                'aria-modal': 'true',
+                'aria-labelledby': 'upkeep-modal-title',
+                onKeyDown: (event: UiEvent) => { if (event.key === 'Escape') closeSchedule() },
+              },
+                h('h4', { className: 'upkeep-modal-title', id: 'upkeep-modal-title' }, t('scheduleTitle')),
+                h('p', { className: 'upkeep-modal-line' }, scheduleTarget),
+                h('label', { className: 'upkeep-modal-field' },
+                  h('span', null, t('scheduleTime')),
+                  h('input', {
+                    className: 'upkeep-time',
+                    type: 'time',
+                    step: '60',
+                    autoFocus: true,
+                    value: scheduleTime,
+                    onChange: (event: UiEvent) => setScheduleTime(event.target?.value ?? ''),
+                  })),
+                h('p', { className: 'upkeep-modal-hint' }, t('scheduleHint')),
+                h('div', { className: 'upkeep-modal-actions' },
+                  h('button', { className: 'upkeep-btn', type: 'button', onClick: closeSchedule }, t('cancel')),
+                  h('button', {
+                    className: 'upkeep-btn',
+                    type: 'button',
+                    'data-variant': 'primary',
+                    disabled: busy || scheduleTime === '',
+                    onClick: saveSchedule,
+                  }, t('create')))))
 
         const requestUpgrade = (bundle: BundleSummary): void => {
           const name = bundle.name || ''
@@ -1207,7 +1244,8 @@ interface Window {
                     : null)
               : null,
             groups,
-            footer))
+            footer,
+            scheduleModal))
       }
 
       function TabBody(props: TabProps): Child {
