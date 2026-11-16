@@ -49,6 +49,7 @@ import { scanSurfaces, type SurfaceInventory } from './surfaces.js'
 import { createExecRunner, type ExecRunner } from './exec.js'
 import {
   createOneShotTask,
+  removeOneShotTask,
   createUpkeepTask,
   isKnownTimeZone,
   listUpkeepTasks,
@@ -126,6 +127,8 @@ export interface HubConfig {
   scheduleCwd: string
   /** Default interval for a created scheduled check. */
   scheduleIntervalHours: number
+  /** Seconds before the one-shot task that starts an upgrade is deleted; 0 keeps it. */
+  upgradeTaskCleanupSeconds: number
   /** How many entries a check may inspect concurrently. */
   concurrency: number
   /** Directory under which upgrade worktrees are created; empty means the repository's sibling directory. */
@@ -184,6 +187,7 @@ export function normalizeConfig(raw: unknown): HubConfig {
     allowMerge: config.allowMerge === true,
     scheduleCwd: typeof config.scheduleCwd === 'string' ? config.scheduleCwd.trim() : '',
     scheduleIntervalHours: normalizeInteger(config.scheduleIntervalHours, 24, 1, 720),
+    upgradeTaskCleanupSeconds: normalizeInteger(config.upgradeTaskCleanupSeconds, 10, 0, 3_600),
     concurrency: normalizeInteger(config.concurrency, 2, 1, 8),
     worktreeRoot: typeof config.worktreeRoot === 'string' ? config.worktreeRoot : '',
     ownerHandles: normalizeConfigList(config.ownerHandles),
@@ -305,6 +309,8 @@ export interface HubDeps {
   fetchImpl?: typeof fetch
   /** Command runner for worktrees and verification; tests inject a fake. */
   exec?: ExecRunner
+  /** One-shot timer for deferred cleanup; tests inject a capture. */
+  setTimer?: (callback: () => void, ms: number) => void
   now?: () => number
   home?: string
   /** Disable the delayed startup check (tests). */
@@ -504,6 +510,11 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     autoDetect: config.autoDetectOwner,
   })
   const exec = deps.exec ?? createExecRunner()
+  /** Delayed work owned by the plugin; tests inject a capture. */
+  const setTimer = deps.setTimer ?? ((callback: () => void, ms: number) => {
+    const timer = setTimeout(callback, ms)
+    timer.unref?.()
+  })
   let startupTimer: ReturnType<typeof setTimeout> | undefined
   /** One long-running operation at a time: two checks or an upgrade must not interleave state writes. */
   let busy: 'check' | 'upgrade' | null = null
@@ -924,12 +935,22 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
         const scheduler = scheduleService(ctx)
         if (scheduler !== undefined) {
           try {
-            await createOneShotTask(scheduler, {
+            const started = await createOneShotTask(scheduler, {
               title: `Upkeep upgrade: ${name}`,
               prompt,
               cwd: prepared.workspacePath,
             })
             autoStarted = true
+            // The delivery is what matters; the catalog entry is noise afterwards.
+            const cleanupSeconds = config.upgradeTaskCleanupSeconds
+            if (cleanupSeconds > 0 && started.id !== null) {
+              const taskId = started.id
+              setTimer(() => {
+                void removeOneShotTask(scheduler, taskId).catch(() => {
+                  // The task may already be gone; nothing else depends on it.
+                })
+              }, cleanupSeconds * 1_000)
+            }
           } catch (error) {
             warnings.push(`The upgrade session could not be started automatically (${error instanceof Error ? error.message : String(error)}); open the workspace and send the prompt yourself.`)
           }

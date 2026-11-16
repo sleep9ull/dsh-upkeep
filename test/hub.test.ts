@@ -677,3 +677,96 @@ test('without the schedule service the upgrade falls back to an unsent draft', a
   assert.equal(prepared.autoStarted, false)
   assert.ok(prepared.warnings.some(warning => /not started automatically/.test(warning)))
 })
+
+test('the one-shot task that starts an upgrade is deleted after the cleanup delay', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-cleanup-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-cleanup-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-cleanup-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(join(packageDir, 'src'), { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: '@sleep9ull/plugin', version: '1.0.0', engines: { dsh: '^0.2.2-rc.1' } }))
+  writeFileSync(join(packageDir, 'src', 'index.js'), 'void 0\n')
+
+  const entries: Array<Record<string, unknown>> = []
+  const edits: Array<Record<string, unknown>> = []
+  const schedule = {
+    create: async (request: unknown) => {
+      const entry = { id: 'shot-1', updatedAt: '2026-01-01T00:00:00.000Z', status: 'active', ...(request as Record<string, unknown>) }
+      entries.push(entry)
+      return entry
+    },
+    catalog: async () => entries,
+    edit: async (request: unknown) => { edits.push(request as Record<string, unknown>); return { id: 'shot-1', deleted: true } },
+  }
+  const timers: Array<{ callback: () => void; ms: number }> = []
+  const exec = {
+    run: async (command: string, args: string[]) => {
+      if (command === 'git' && args[0] === 'rev-parse') return { exitCode: 0, stdout: packageDir + '\n', stderr: '', timedOut: false }
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
+    },
+  }
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [], source: 'link:' + packageDir }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+    schedule,
+    workspaceRegistry: { create: async (path: string, title: string) => ({ id: 'ws-1', path, title }) },
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false, targetVersion: '0.2.2-rc.3', upgradeTaskCleanupSeconds: 10 }), {
+    home, startupCheck: false, now: () => 11_000, exec,
+    setTimer: (callback, ms) => { timers.push({ callback, ms }) },
+  })
+
+  await hub.call('upgrade.prepare', { bundle: '@sleep9ull/plugin', confirm: true }, { caller: 'client' })
+
+  assert.equal(timers.length, 1, 'one deferred cleanup was scheduled')
+  assert.equal(timers[0]?.ms, 10_000)
+  assert.deepEqual(edits, [], 'nothing is deleted before the delay elapses')
+
+  timers[0]?.callback()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const deletion = edits[0] as Record<string, unknown> | undefined
+  assert.ok(edits.length === 1, 'exactly one delete was issued')
+  assert.equal(deletion?.id, 'shot-1')
+  assert.equal(deletion?.action, 'delete')
+  assert.equal(deletion?.expectedUpdatedAt, '2026-01-01T00:00:00.000Z', 'the delete carries the concurrency token')
+})
+
+test('a zero cleanup delay keeps the task', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-keep-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-keep-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-keep-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(join(packageDir, 'src'), { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: '@sleep9ull/plugin', version: '1.0.0', engines: { dsh: '^0.2.2-rc.1' } }))
+  writeFileSync(join(packageDir, 'src', 'index.js'), 'void 0\n')
+
+  const schedule = {
+    create: async (request: unknown) => ({ id: 'shot-1', ...(request as Record<string, unknown>) }),
+    catalog: async () => [],
+    edit: async () => ({}),
+  }
+  const timers: unknown[] = []
+  const exec = {
+    run: async (command: string, args: string[]) => {
+      if (command === 'git' && args[0] === 'rev-parse') return { exitCode: 0, stdout: packageDir + '\n', stderr: '', timedOut: false }
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
+    },
+  }
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [], source: 'link:' + packageDir }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+    schedule,
+    workspaceRegistry: { create: async (path: string, title: string) => ({ id: 'ws-1', path, title }) },
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false, targetVersion: '0.2.2-rc.3', upgradeTaskCleanupSeconds: 0 }), {
+    home, startupCheck: false, now: () => 12_000, exec,
+    setTimer: (callback, ms) => { timers.push({ callback, ms }) },
+  })
+
+  await hub.call('upgrade.prepare', { bundle: '@sleep9ull/plugin', confirm: true }, { caller: 'client' })
+  assert.deepEqual(timers, [], 'no cleanup is scheduled when the delay is zero')
+})

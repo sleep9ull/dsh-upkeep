@@ -28,3 +28,5 @@
         # Project directory for the Session a scheduled check creates; empty uses $DSH_HOME.
         scheduleCwd: ""
         scheduleIntervalHours: 24
+        # Seconds before the one-shot task that starts an upgrade is deleted; 0 keeps it.
+        upgradeTaskCleanupSeconds: 10

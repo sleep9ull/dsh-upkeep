@@ -14,6 +14,7 @@ export interface ScheduleServiceLike {
   create(request: Record<string, unknown>): Promise<unknown>
   catalog(): Promise<unknown[]>
   list?(request?: Record<string, unknown>): Promise<unknown>
+  edit?(request: Record<string, unknown>): Promise<unknown>
 }
 
 /** How this plugin names its profile-wide task. */
@@ -47,9 +48,13 @@ export function scheduleService(ctx: { get(name: string): unknown }): ScheduleSe
   const create = value.create
   const catalog = typeof value.catalog === 'function' ? value.catalog : undefined
   const list = typeof value.list === 'function' ? value.list : undefined
+  const edit = typeof value.edit === 'function' ? value.edit : undefined
   if (catalog === undefined && list === undefined) return undefined
   return {
     create: async (request) => await (create as (request: unknown) => Promise<unknown>).call(value, request),
+    ...(edit === undefined ? {} : {
+      edit: async (request: Record<string, unknown>) => await (edit as (request: unknown) => Promise<unknown>).call(value, request),
+    }),
     catalog: async () => {
       if (catalog !== undefined) {
         const entries: unknown = await (catalog as () => Promise<unknown>).call(value)
@@ -184,6 +189,23 @@ export async function createOneShotTask(
   const id = isRecord(created) && typeof created.id === 'string' ? created.id : null
   const title = isRecord(created) && typeof created.title === 'string' ? created.title : options.title
   return { id, title }
+}
+
+/**
+ * Delete one of this plugin's tasks.
+ *
+ * The service deletes through an edit with `action: 'delete'` and the entry's
+ * current `updatedAt` as its concurrency token, so the catalog is read first.
+ * @returns whether a task was deleted.
+ */
+export async function removeOneShotTask(service: ScheduleServiceLike, id: string): Promise<boolean> {
+  if (service.edit === undefined) return false
+  const entries = await service.catalog()
+  const entry = entries.find(candidate => isRecord(candidate) && candidate.id === id)
+  if (entry === undefined) return false
+  const updatedAt = isRecord(entry) && typeof entry.updatedAt === 'string' ? entry.updatedAt : null
+  const answer: unknown = await service.edit({ id, action: 'delete', expectedUpdatedAt: updatedAt })
+  return isRecord(answer) && answer.deleted === true
 }
 
 /** List the tasks this plugin created, newest fields preserved as-is. */
