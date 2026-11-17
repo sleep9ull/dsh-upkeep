@@ -6,6 +6,13 @@
 ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.3-4b8bbe)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+> **Status: `0.1.0`, early release.** The package is published as **`@sleep9ull/dsh-upkeep`**:
+> `dsh plugin --profile <name> add @sleep9ull/dsh-upkeep`.
+> Verified on **DSH `0.2.2-rc.3` on macOS**, in English and Chinese. The monitoring,
+> upgrade-prepare, scheduled-check and panel paths have been exercised end to end;
+> **the pull-request step is implemented and unit-tested but has not yet been run
+> against a real GitHub repository**, so try it on a scratch repository first.
+
 **The compatibility concierge for [DeepSeek Harness](https://www.deepseek.com/harness/) plugins.**
 
 > DSH moves fast. A plugin that no longer declares a compatible version is not "a bit wrong" — DSH refuses to load it, the row ends up silently disabled, and the only trace is one line on stderr. Finding out *why*, then fixing it, is manual work every single release.
@@ -27,7 +34,13 @@ Everything the panel does is also available to the agent through the `upkeep_sta
 
 ## Install / update
 
-`dsh-upkeep` is not on the npm registry yet. Install from a local checkout:
+Install the published package into the profile that runs your UI (`web` for an npm install, `desktop` for the desktop app):
+
+```sh
+dsh plugin --profile desktop add @sleep9ull/dsh-upkeep
+```
+
+Until `0.1.0` is on the registry, install from a checkout instead:
 
 ```sh
 git clone https://github.com/sleep9ull/dsh-upkeep.git
@@ -129,6 +142,14 @@ Upkeep reads your installed plugins, and on request prepares an upgrade of one r
 Host warnings are translated too: the panel sends its language with every request, so a Chinese panel reads Chinese warnings instead of English ones.
 
 ## Notes and limitations
+
+- **macOS first.** Developed and verified there; the Host half is plain Node and should behave the same on Linux, but Windows is not supported (`verifyCommands` run through `sh -c`).
+- **DSH internals move.** The plugin reads DSH's own services (schedules, workspaces, plugins) and pins `engines.dsh` to the release it was tested against. A DSH upgrade is a dogfooding event: re-run `npm run verify`, then walk the install checklist.
+- **Two languages.** The panel and Host warnings speak English and Chinese; other DSH languages fall back to English.
+- **Your own plugins only.** Official `@deepseek-ai/*` packages are excluded by design, and other authors' plugins are diagnosed, never upgraded.
+- **The upgrade itself is an agent in a session.** The prompt fences it to DSH-compatibility changes and forbids fixing anything else, but watching the session and reading the diff before Verify → Create PR remains your job.
+
+
 
 - **Verified on DSH `0.2.2-rc.3`**, and the declared range says exactly that: `>=0.2.2-rc.3 <0.3.0`. Earlier prereleases are not claimed — they were never tested, and the internal surfaces this plugin reads do change between them.
 - **The PR path needs the host `gh` CLI signed in**; merging needs `allowMerge` and a fresh confirmation. Nothing is pushed unattended.

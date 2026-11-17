@@ -6,6 +6,12 @@
 ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.3-4b8bbe)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+> **状态：`0.1.0`，早期版本。** 包名是 **`@sleep9ull/dsh-upkeep`**：
+> `dsh plugin --profile <name> add @sleep9ull/dsh-upkeep`。
+> 已在 **macOS 上的 DSH `0.2.2-rc.3`** 验证，支持中英文。监测、升级准备、定时检查与面板
+> 这几条路径已经真机走过；**创建 PR 那一步实现了也有单测，但还没有在真实 GitHub 仓库上跑过**，
+> 建议先拿一个测试仓库试。
+
 **为 [DeepSeek Harness](https://www.deepseek.com/harness/) 插件作者准备的兼容性管家。**
 
 > DSH 迭代很快。一个插件不再声明兼容当前版本时，它不是"有点小问题"——DSH 会直接拒绝加载它，对应的行被静默禁用，唯一的痕迹是 stderr 上的一行日志。搞清楚**为什么**、再修好它，每个版本都要手工来一遍。
@@ -27,7 +33,13 @@
 
 ## 安装 / 更新
 
-`dsh-upkeep` 尚未发布到 npm registry，请从本地 checkout 安装：
+把发布版装进运行界面的那个 profile（npm 安装在 `web`，桌面应用在 `desktop`）：
+
+```sh
+dsh plugin --profile desktop add @sleep9ull/dsh-upkeep
+```
+
+`0.1.0` 上架之前，请用下面的本地 checkout 方式安装：
 
 ```sh
 git clone https://github.com/sleep9ull/dsh-upkeep.git
@@ -129,6 +141,14 @@ Upkeep 读取已安装的插件，并在你要求时为你自己的某个仓库�
 Host 侧的警告也会跟随语言：面板每次请求都带上当前语言，所以中文界面看到的是中文警告，而不是英文。
 
 ## 注意事项
+
+- **优先 macOS。** 在那上边开发与验证；Host 半是纯 Node，Linux 上应当表现一致，但 **Windows 不支持**（`verifyCommands` 经 `sh -c` 执行）。
+- **DSH 内部接口会变。** 插件直接读 DSH 自己的服务（定时任务、工作区、插件），并把 `engines.dsh` 锁在验证过的版本上。DSH 升级时要走一遍 dogfooding：先 `npm run verify`，再走安装验收。
+- **两种语言。** 面板与 Host 警告支持中英文，其它 DSH 语言回退英文。
+- **只管你自己的插件。** 官方 `@deepseek-ai/*` 按设计排除；他人插件只做诊断，不会被升级。
+- **升级本身是会话里的 agent 在改代码。** 提示词把范围限死为 DSH 兼容性改动并禁止顺手修别的，但"看住会话、在 Verify→Create PR 前读 diff"仍然是你的活。
+
+
 
 - **只在 DSH `0.2.2-rc.3` 上验证过**，声明范围也如实写成 `>=0.2.2-rc.3 <0.3.0`。更早的 prerelease 不在声明内——它们没被测过，而本插件读取的内部接口在 prerelease 之间确实会变。
 - **PR 路径需要宿主 `gh` CLI 已登录**；合并需要 `allowMerge` 与当次确认。不会无人值守地推送。
