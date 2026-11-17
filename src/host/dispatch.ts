@@ -555,13 +555,13 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
    * is never touched.
    * @returns warnings for anything refused or unreadable.
    */
-  async function refreshLaunchers(): Promise<string[]> {
+  async function refreshLaunchers(locale?: 'en' | 'zh'): Promise<string[]> {
     const warnings: string[] = []
     const scheduler = scheduleService(ctx)
     if (scheduler === undefined) return warnings
     try {
       for (const task of await listUpkeepTasks(scheduler)) {
-        if (await reconcileTaskPrompt(scheduler, task)) {
+        if (await reconcileTaskPrompt(scheduler, task, locale === undefined ? {} : { locale })) {
           warnings.push(warning('launcherRefreshed', task.title))
         }
       }
@@ -578,10 +578,18 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
    * lives: it changes with the installed plugin, and an old task picks it up on
    * its next delivery.
    */
-  function scheduleBrief(): { version: number; lines: string[] } {
+  function scheduleBrief(locale: 'en' | 'zh' = 'en'): { version: number; lines: string[] } {
     return {
       version: TASK_PROMPT_VERSION,
-      lines: [
+      lines: locale === 'zh'
+        ? [
+            '汇报当前运行版本与目标 DSH 版本，然后说明哪些属于你的插件需要维护、为什么，以及命中的迁移指南条目。',
+            '如果都不需要维护，用一句话说明，不要凑篇幅。',
+            '对于与 DSH 版本变化无关的发现，按 P0（数据丢失、安全、构建失败、核心路径不可用）、P1（有绕行方案的真实缺陷）、P2（轻微）分级。',
+            '这些发现只描述问题：不给修法、不暗示修法、不写补丁、不估工，也不要碰相关代码。',
+            '定时运行中永远不要修改仓库；升级只能从 Upkeep 面板发起。',
+          ]
+        : [
         'Report the running and target DSH versions, then which of MY plugins need care and why, with the matched migration-guide items.',
         'If nothing needs care, say so in one line; do not pad the report.',
         'Grade anything you noticed that the DSH version change did not cause as P0 (data loss, security, broken build or core path), P1 (real defect with a workaround) or P2 (minor).',
@@ -727,7 +735,9 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
   }
 
   /** Build one status snapshot; `targetOverride` carries a freshly fetched target. */
-  async function buildSnapshot(options: { targetOverride?: TargetVersion; extraWarnings?: string[] } = {}): Promise<StatusSnapshot> {
+  async function buildSnapshot(
+    options: { targetOverride?: TargetVersion; extraWarnings?: string[]; locale?: 'en' | 'zh' } = {},
+  ): Promise<StatusSnapshot> {
     const warnings: string[] = [...(options.extraWarnings ?? [])]
     const runtime = readRuntimeVersion(profile)
     if (runtime.version === null) warnings.push(warning('runtimeUnreadable'))
@@ -802,7 +812,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
       profile: { name: profile?.name ?? null, dir: profile?.dir ?? null },
       target,
       delivery: { allowMerge: config.allowMerge, baseBranch: config.defaultBaseBranch },
-      brief: scheduleBrief(),
+      brief: scheduleBrief(options.locale ?? 'en'),
       scheduled: await readScheduled(),
       capabilities: {
         schedule: scheduleService(ctx) !== undefined,
@@ -821,7 +831,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
   }
 
   /** Run one check: refresh the target, evaluate everything, store the report. */
-  async function runCheck(call: CallContext, force = false): Promise<StatusSnapshot> {
+  async function runCheck(call: CallContext, force = false, locale?: 'en' | 'zh'): Promise<StatusSnapshot> {
     call.signal?.throwIfAborted()
     const warnings: string[] = []
     const state = readState(home)
@@ -852,7 +862,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
       }
     }
 
-    const snapshot = await buildSnapshot({ targetOverride, extraWarnings: warnings })
+    const snapshot = await buildSnapshot({ targetOverride, extraWarnings: warnings, ...(locale === undefined ? {} : { locale }) })
 
     // M2: one guide read per check, then a bounded scan+match per own bundle.
     if (config.analyzeOnCheck) {
@@ -910,15 +920,16 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     status: {
       kind: 'read',
       description: 'DSH, profile, target version, bundles, ownership and care verdicts in one snapshot.',
-      run: async (_input, call) => {
+      run: async (input, call) => {
         call.signal?.throwIfAborted()
-        return await buildSnapshot()
+        return await buildSnapshot({ locale: hostLocale(input.locale) })
       },
     },
     check: {
       kind: 'read',
       description: 'Refresh the target DSH version from the registry, evaluate every bundle and store one report.',
-      run: async (input, call) => await exclusive('check', async () => await runCheck(call, input.force === true)),
+      run: async (input, call) =>
+        await exclusive('check', async () => await runCheck(call, input.force === true, hostLocale(input.locale))),
     },
     'report.get': {
       kind: 'read',
@@ -962,7 +973,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
         const repo = await inspectRepository(exec, packageDir)
         if (repo === undefined) throw new HubError('NOT_A_REPOSITORY', 'The plugin directory is not inside a git checkout.')
 
-        const status = await buildSnapshot()
+        const status = await buildSnapshot({ locale: hostLocale(input.locale) })
         const loaded = await loadGuides()
         const warnings: string[] = []
         const analysis = await analyzeBundle(listing, loaded.guides)
@@ -1210,6 +1221,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
         const task = await createUpkeepTask(service, {
           intervalHours,
           cwd,
+          locale: hostLocale(input.locale),
           ...(bundle === undefined ? {} : { bundle }),
           ...(timeOfDay === undefined ? {} : { timeOfDay, timeZone: rawZone }),
         })
@@ -1221,7 +1233,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
       description: 'Bring stored task launchers up to the installed version (needs confirm).',
       run: async (input) => {
         if (input.confirm !== true) throw new HubError('CONFIRM_REQUIRED', 'Refreshing stored tasks needs confirm: true.')
-        const warnings = await refreshLaunchers()
+        const warnings = await refreshLaunchers(hostLocale(input.locale))
         return { refreshed: warnings.length > 0, warnings }
       },
     },

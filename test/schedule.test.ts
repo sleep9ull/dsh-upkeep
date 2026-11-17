@@ -6,6 +6,7 @@ import {
   TASK_TITLE,
   isLauncherPrompt,
   promptVersionOf,
+  parseTaskMarker,
   isKnownTimeZone,
   normalizeTimeOfDay,
   parseUpkeepTitle,
@@ -113,7 +114,7 @@ test('the stored prompt is a launcher that delegates the policy', () => {
   const prompt = buildSchedulePrompt()
   assert.ok(prompt.startsWith(LAUNCHER_HEAD))
   assert.match(prompt, /follow the `brief` block/)
-  assert.match(prompt, new RegExp('<!-- upkeep-task:v' + TASK_PROMPT_VERSION + ' -->'))
+  assert.match(prompt, new RegExp('<!-- upkeep-task:v' + TASK_PROMPT_VERSION + ' lang=en -->'))
   // Policy lives in the plugin, not in the frozen copy.
   assert.doesNotMatch(prompt, /P0|P1|P2/)
   assert.doesNotMatch(prompt, /migration-guide/)
@@ -142,4 +143,19 @@ test('a task title distinguishes the global check from a per-plugin one', () => 
   assert.deepEqual(parseUpkeepTitle('Upkeep: @a/b'), { kind: 'bundle', bundle: '@a/b' })
   // Old and new titles both resolve, so an upgrade never orphans a task.
   assert.equal(scheduledTaskViews([{ title: TASK_TITLE, status: 'active', everySeconds: 86_400 }]).length, 1)
+})
+
+test('a task is created in the language the panel asked for', () => {
+  const zh = buildSchedulePrompt('@a/b', 'zh')
+  assert.match(zh, /运行 dsh-upkeep 的兼容性检查/)
+  assert.match(zh, /只关注插件 `@a\/b`/)
+  assert.match(zh, /<!-- upkeep-task:v2 lang=zh bundle="@a\/b" -->/)
+  assert.equal(promptVersionOf(zh), TASK_PROMPT_VERSION, 'the generation is unchanged')
+  assert.deepEqual(parseTaskMarker(zh), { version: TASK_PROMPT_VERSION, locale: 'zh', bundle: '@a/b' })
+
+  // Identity survives a language switch: the marker, not the title, carries it.
+  assert.equal(taskTitleFor({ kind: 'all' }, 'zh'), 'Upkeep 兼容性检查')
+  assert.equal(taskTitleFor({ kind: 'bundle', bundle: '@a/b' }, 'zh'), 'Upkeep 兼容性检查：@a/b')
+  assert.deepEqual(parseUpkeepTitle('Upkeep 兼容性检查'), { kind: 'all' })
+  assert.deepEqual(parseUpkeepTitle('Upkeep 兼容性检查：@a/b'), { kind: 'bundle', bundle: '@a/b' })
 })
