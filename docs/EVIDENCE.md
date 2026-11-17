@@ -110,3 +110,23 @@
 | Bundle manifest：`dsh.bundle.patch` 指向 cordis.patch.yml；`dsh.client` 声明客户端半 | `dsh-doc/references/host-plugin.md:5-27`；`references/ui-plugin.md:3` |
 | 插件可 peer 声明 DSH 包以共享安装版实例（linked checkout 场景） | `D/user/develop/basic/publish.md:105-107` |
 | 装包后确认生效看 `application`/`warnings`，不看日志或进程 | `dsh-doc/references/plugin-development.md:20` |
+
+## 客户端模块表与 primitives 的可达性（0.2.2-rc.3）
+
+- 页面的模块种子表由 web 产物里的 `qJ()` 返回，键为：`react`、`react/jsx-runtime`、`react-dom`、`react-dom/client`、`@deepseek-ai/cordis`、`zod`、`@tanstack/react-virtual`、`@deepseek-ai/dsh-client-store`、`@deepseek-ai/dsh-client-ui-slots`、`@deepseek-ai/dsh-client-ui-primitives`、`@deepseek-ai/dsh-client-ui-dockkit`。
+  出处：`dsh-web-frontend/dist/assets/index-Ciz7DZxv.js`（`function qJ(){…}`）。
+- 模块加载器的同步 `require` 先查种子表，命中即返回：
+  出处：`dsh-client-modules/src/client/system.ts`（`if (this.seed.has(spec)) return this.seed.get(spec)`）。
+- **但插件不得 require 宿主客户端包**（含 `@deepseek-ai/dsh-client-ui-primitives`）：会随版本无预警变化，且组件抛错会让整个 slot 变空白（控制台 `slot entry crashed in '<slot>'`）。允许的做法是照抄 markup/CSS/行为，类名加自己的前缀，只保留 `--dsw-alias-*` token。
+  出处：`dsh-agent-preset/skills/dsh-doc/references/practices.md` §UI（第 35 行）。
+- 结论（D15 复核）：**技术可达 ≠ 允许使用**；本插件的客户端仍只 `require('react')`，控件样式按宿主 CSS 度量手写。
+
+## schedule 服务的编辑与删除（0.2.2-rc.3）
+
+- 没有独立的 delete 方法；删除与改写都走 `edit`：
+  `{ id, action: 'update', patch: { title?, prompt?, timing?, target?, active? }, expectedUpdatedAt? }` 或 `{ id, action: 'delete', expectedUpdatedAt? }`；
+  冲突返回 `{ code: 'schedule_conflict' }`。
+  出处：`dsh-schedule/src/types.ts`（`ScheduleEditRequest`、`SchedulePatch`）与 `dsh-schedule/src/index.ts`（`action === 'delete'` 分支）。
+- 任务记录里可读的事实：`EveryScheduleRecord.everySeconds` 与 `scheduledAt`（下一次锚定时刻）。
+  出处：`dsh-schedule/src/types.ts`。
+- 一次性投递：`timing: { kind: 'after', after_seconds }` + `target: { kind: 'new_once', create: { cwd } }`，用于让 agent 无人值守地开始执行。

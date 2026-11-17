@@ -85,3 +85,17 @@ test('the delivery proposal names the plugin and the version range', () => {
   assert.match(proposal.prTitle, /adapt to DSH 0\.2\.3-rc\.1/)
   assert.match(proposal.prBody, /Matched migration-guide items: 3/)
 })
+
+test('a commit stages exactly the reviewed paths when given them', async () => {
+  const calls: string[][] = []
+  const exec = {
+    run: async (command: string, args: string[]) => {
+      calls.push([command, ...args])
+      if (command === 'git' && args[0] === 'rev-parse') return { exitCode: 0, stdout: 'abc\n', stderr: '', timedOut: false }
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
+    },
+  }
+  await commitWorkspace(exec as never, '/repo', 'msg', ['src/a.ts', 'src/b.ts'])
+  const add = calls.find(call => call[1] === 'add')
+  assert.deepEqual(add, ['git', 'add', '--', 'src/a.ts', 'src/b.ts'])
+})

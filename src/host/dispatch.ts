@@ -827,7 +827,8 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     let targetOverride: TargetVersion | undefined
     let cachedFeed = state.feed
 
-    warnings.push(...await refreshLaunchers())
+    // Launcher reconciliation is a write to the author's tasks, so it belongs to
+    // the startup pass and to schedule.refresh, never to this read-shaped check.
 
     const configured = config.targetVersion.trim()
     const pinning = configured !== '' && parseVersion(configured) !== undefined
@@ -981,7 +982,17 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
           stamp,
           ignoreWorktree: config.ignoreWorktrees,
         })
-        const workspaceId = await registerWorkspace(prepared.workspacePath, `Upkeep: ${name}`)
+        let workspaceId: string
+        try {
+          workspaceId = await registerWorkspace(prepared.workspacePath, `Upkeep: ${name}`)
+        } catch (error) {
+          // The workspace is the whole point of the run; without it the worktree is litter.
+          if (prepared.worktree) {
+            await removeWorktreeAndBranch(exec, repo.repoRoot, { path: prepared.workspacePath, branch: prepared.branch ?? null })
+              .catch(() => undefined)
+          }
+          throw error
+        }
         const prompt = buildUpgradePrompt({
           bundle: name,
           repoPath: repo.repoRoot,
@@ -1106,7 +1117,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
         if (!preview.gh.authed) throw new HubError('GH_UNAUTHENTICATED', 'The gh CLI is not signed in.')
 
         const proposal = buildDeliveryText({ bundle: run.bundle, from: run.from ?? null, to: run.to ?? null, matched: run.matched ?? 0 })
-        const commit = await commitWorkspace(exec, run.workspacePath, proposal.commitMessage)
+        const commit = await commitWorkspace(exec, run.workspacePath, proposal.commitMessage, preview.files)
         if (!commit.committed && preview.dirty === 0 && preview.ahead === 0) {
           throw new HubError('NOTHING_TO_DELIVER', 'There are no changes to commit or push.')
         }
@@ -1202,6 +1213,15 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
           ...(timeOfDay === undefined ? {} : { timeOfDay, timeZone: rawZone }),
         })
         return { task, intervalHours, cwd, ...(timeOfDay === undefined ? {} : { time: timeOfDay, timeZone: rawZone }) }
+      },
+    },
+    'schedule.refresh': {
+      kind: 'write',
+      description: 'Bring stored task launchers up to the installed version (needs confirm).',
+      run: async (input) => {
+        if (input.confirm !== true) throw new HubError('CONFIRM_REQUIRED', 'Refreshing stored tasks needs confirm: true.')
+        const warnings = await refreshLaunchers()
+        return { refreshed: warnings.length > 0, warnings }
       },
     },
     'schedule.list': {

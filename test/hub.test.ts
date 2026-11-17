@@ -863,7 +863,7 @@ test('merging retires the worktree and its branch', async () => {
   assert.ok(calls.some(call => call[1] === 'branch' && call[2] === '-D' && call[3] === prepared.run.branch))
 })
 
-test('check refreshes an old launcher but leaves a rewritten prompt alone', async () => {
+test('schedule.refresh rewrites an old launcher but leaves a rewritten prompt alone', async () => {
   const home = mkdtempSync(join(tmpdir(), 'upkeep-launch-'))
   const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-launch-profile-'))
   const installDir = mkdtempSync(join(tmpdir(), 'upkeep-launch-runtime-'))
@@ -898,7 +898,18 @@ test('check refreshes an old launcher but leaves a rewritten prompt alone', asyn
     home, startupCheck: false, now: () => 20_000,
   })
 
-  const status = await hub.call('check', {}, { caller: 'client' }) as { warnings: string[]; brief: { version: number; lines: string[] } }
+  // A check is read-shaped: it must not touch the author's tasks.
+  await hub.call('check', {}, { caller: 'client' })
+  assert.equal(edits.length, 0, 'a check does not rewrite stored tasks')
+
+  await assert.rejects(
+    () => hub.call('schedule.refresh', { confirm: false }, { caller: 'client' }),
+    (error: unknown) => (error as { code?: string }).code === 'CONFIRM_REQUIRED',
+  )
+  const refreshed = await hub.call('schedule.refresh', { confirm: true }, { caller: 'client' }) as {
+    refreshed: boolean
+    warnings: string[]
+  }
 
   assert.equal(edits.length, 1, 'only the outdated launcher is rewritten')
   assert.equal(edits[0]?.id, 'old-launcher')
@@ -906,11 +917,13 @@ test('check refreshes an old launcher but leaves a rewritten prompt alone', asyn
   assert.equal(edits[0]?.expectedUpdatedAt, 'T1', 'the edit keeps the concurrency token')
   const patch = edits[0]?.patch as { prompt: string }
   assert.match(patch.prompt, /follow the `brief` block/)
+  assert.equal(refreshed.refreshed, true)
+  assert.ok(refreshed.warnings.some(warning => /Refreshed the launcher/.test(warning)))
 
   // The policy travels with the snapshot, not with the task.
+  const status = await hub.call('status', {}, { caller: 'client' }) as { brief: { version: number; lines: string[] } }
   assert.ok(status.brief.lines.length >= 4)
   assert.ok(status.brief.lines.some(line => /P0 \(data loss/.test(line)))
-  assert.ok(status.warnings.some(warning => /Refreshed the launcher/.test(warning)))
 })
 
 test('startup refreshes old launchers even when the startup check is off', async () => {
@@ -946,4 +959,37 @@ test('startup refreshes old launchers even when the startup check is off', async
   assert.equal(edits.length, 1, 'the stored launcher was refreshed at startup')
   assert.equal(edits[0]?.id, 'old')
   assert.match(((edits[0]?.patch as { prompt: string }).prompt), /follow the `brief` block/)
+})
+
+test('a preparation that cannot register its workspace removes the worktree it made', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-rollback-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-rollback-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-rollback-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(join(packageDir, 'src'), { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: '@sleep9ull/plugin', version: '1.0.0', engines: { dsh: '^0.2.2-rc.1' } }))
+  writeFileSync(join(packageDir, 'src', 'index.js'), 'void 0\n')
+
+  const calls: string[][] = []
+  const exec = {
+    run: async (command: string, args: string[]) => {
+      calls.push([command, ...args])
+      if (command === 'git' && args[0] === 'rev-parse') return { exitCode: 0, stdout: packageDir + '\n', stderr: '', timedOut: false }
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
+    },
+  }
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [], source: 'link:' + packageDir }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+    workspaceRegistry: { create: async () => { throw new Error('registry offline') } },
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false, targetVersion: '0.2.2-rc.3' }), {
+    home, startupCheck: false, now: () => 40_000, exec,
+  })
+
+  await assert.rejects(() => hub.call('upgrade.prepare', { bundle: '@sleep9ull/plugin', worktree: true, confirm: true }, { caller: 'client' }))
+  assert.ok(calls.some(call => call[1] === 'worktree' && call[2] === 'remove'), 'the orphan worktree was removed')
+  assert.ok(calls.some(call => call[1] === 'branch' && call[2] === '-D'), 'and its branch too')
 })

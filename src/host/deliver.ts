@@ -19,6 +19,8 @@ export interface DeliveryPreview {
   ahead: number
   diffStat: string
   gh: { available: boolean; authed: boolean; remote: string | null }
+  /** Changed paths, relative to the workspace root. */
+  files: string[]
   warnings: string[]
 }
 
@@ -42,7 +44,14 @@ export async function readDeliveryPreview(exec: ExecRunner, workspacePath: strin
   if (branch === null) warnings.push('The workspace is not on a git branch.')
 
   const status = await git(exec, workspacePath, ['status', '--porcelain'])
-  const dirty = status.stdout.split('\n').filter(line => line.trim() !== '').length
+  const statusLines = status.stdout.split('\n').filter(line => line.trim() !== '')
+  const dirty = statusLines.length
+  // Porcelain keeps the path after the two status columns; renames carry "old -> new".
+  const files = statusLines.map(line => {
+    const path = line.slice(3).trim()
+    const arrow = path.indexOf(' -> ')
+    return arrow === -1 ? path : path.slice(arrow + 4)
+  })
 
   let ahead = 0
   const aheadResult = await git(exec, workspacePath, ['rev-list', '--count', `${base}..HEAD`])
@@ -64,12 +73,23 @@ export async function readDeliveryPreview(exec: ExecRunner, workspacePath: strin
   const remote = remoteResult.exitCode === 0 ? remoteResult.stdout.trim() : null
   if (ghAvailable && ghAuth !== undefined && ghAuth.exitCode !== 0) warnings.push('The gh CLI is installed but not signed in.')
 
-  return { workspacePath, branch, base, dirty, ahead, diffStat, gh: { available: ghAvailable, authed: ghAuth?.exitCode === 0, remote }, warnings }
+  return { workspacePath, branch, base, dirty, ahead, diffStat, gh: { available: ghAvailable, authed: ghAuth?.exitCode === 0, remote }, files, warnings }
 }
 
-/** Stage every change and commit it; a clean tree is not an error. */
-export async function commitWorkspace(exec: ExecRunner, workspacePath: string, message: string): Promise<CommitOutcome> {
-  const add = await git(exec, workspacePath, ['add', '-A'])
+/**
+ * Stage and commit; a clean tree is not an error.
+ * @param paths - when given, stage only these paths (the preview's changed files)
+ * so a stray build artifact in the worktree cannot ride along.
+ */
+export async function commitWorkspace(
+  exec: ExecRunner,
+  workspacePath: string,
+  message: string,
+  paths: string[] = [],
+): Promise<CommitOutcome> {
+  const add = paths.length > 0
+    ? await git(exec, workspacePath, ['add', '--', ...paths])
+    : await git(exec, workspacePath, ['add', '-A'])
   if (add.exitCode !== 0) return { committed: false, output: (add.stderr || add.stdout).trim() }
   const commit = await git(exec, workspacePath, ['commit', '-m', message])
   if (commit.exitCode !== 0) {
