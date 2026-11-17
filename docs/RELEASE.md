@@ -1,8 +1,7 @@
 # Releasing dsh-upkeep
 
-The version stays `0.1.0` until the first public release. After that, semver:
-`0.x` minor for behaviour, patch for fixes. Never publish a version that has not
-passed every step below.
+Semver: `0.x` minor for behaviour, patch for fixes. Never publish a version that
+has not passed every step below.
 
 ## 1. Prove it locally
 
