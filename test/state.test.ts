@@ -1,9 +1,9 @@
 import { strict as assert } from 'node:assert'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { appendCheck, emptyState, lastCheckView, readState, statePath, writeState } from '../dist/host/state.js'
+import { STATE_VERSION, appendCheck, emptyState, lastCheckView, readState, statePath, writeState } from '../dist/host/state.js'
 import type { StoredCheck } from '../dist/host/state.js'
 
 function check(id: string, at: number): StoredCheck {
@@ -28,4 +28,21 @@ test('checks are bounded and the newest is summarized first', () => {
   assert.deepEqual(state.checks.map(entry => entry.id), ['c4', 'c3', 'c2'])
   assert.equal(lastCheckView(state)?.at, 4)
   assert.equal(lastCheckView(emptyState()), undefined)
+})
+
+test('an older payload is migrated instead of discarded, a newer one is not clobbered', () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-migrate-'))
+  mkdirSync(join(home, 'upkeep'), { recursive: true })
+  const file = join(home, 'upkeep', 'state.json')
+
+  // Pre-versioning shape: same fields, no `version`.
+  writeFileSync(file, JSON.stringify({ checks: [], runs: [], updatedAt: '2026-01-01T00:00:00.000Z' }))
+  const migrated = readState(home)
+  assert.equal(migrated.version, STATE_VERSION, 'the payload is brought forward')
+
+  // Written by a newer build: start empty rather than downgrade the file.
+  writeFileSync(file, JSON.stringify({ version: STATE_VERSION + 1, checks: [], runs: [] }))
+  const future = readState(home)
+  assert.equal(future.version, STATE_VERSION)
+  assert.deepEqual(future.runs, [], 'a newer layout is not interpreted as ours')
 })

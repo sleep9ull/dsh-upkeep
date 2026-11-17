@@ -28,7 +28,8 @@
     "LICENSE",
     "CHANGELOG.md",
     "scripts/full-test.mjs",
-    "docs/SECURITY.md"
+    "docs/SECURITY.md",
+    "docs/RELEASE.md"
   ],
   "publishConfig": {
     "access": "public"

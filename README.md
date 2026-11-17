@@ -124,7 +124,7 @@ npm run verify:full  # everything above + package metadata + profile check + rea
 
 ## What it touches on your machine
 
-Upkeep reads your installed plugins, and on request prepares an upgrade of one repository you own. It talks to the npm registry and GitHub for metadata, writes `$DSH_HOME/upkeep/state.json`, creates `<repo>/.worktrees/upkeep/<run>` for isolated upgrades, and runs `git`/`gh` plus your configured verification commands. It never edits your source and never commits or pushes without your confirmation. The full list, including how to uninstall cleanly, is in [docs/SECURITY.md](docs/SECURITY.md).
+Upkeep reads your installed plugins, and on request prepares an upgrade of one repository you own. It talks to the npm registry and GitHub for metadata, writes `$DSH_HOME/upkeep/state.json`, creates `<repo>/.worktrees/upkeep/<run>` for isolated upgrades, and runs `git`/`gh` plus your configured verification commands. It never edits your source and never commits or pushes without your confirmation. The full list, including how to uninstall cleanly, is in [docs/SECURITY.md](docs/SECURITY.md); releasing is documented in [docs/RELEASE.md](docs/RELEASE.md).
 
 ## Notes and limitations
 

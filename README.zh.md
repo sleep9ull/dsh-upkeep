@@ -124,7 +124,7 @@ npm run verify:full  # 以上全部 + 包元数据 + profile 检查 + 真实 reg
 
 ## 它会碰你机器上的什么
 
-Upkeep 读取已安装的插件，并在你要求时为你自己的某个仓库准备升级。它会访问 npm registry 与 GitHub 取元数据，写入 `$DSH_HOME/upkeep/state.json`，为隔离升级创建 `<repo>/.worktrees/upkeep/<run>`，并运行 `git`/`gh` 与你配置的验证命令。它不会改你的源码，也不会在你确认前提交或推送。完整清单与干净卸载步骤见 [docs/SECURITY.md](docs/SECURITY.md)。
+Upkeep 读取已安装的插件，并在你要求时为你自己的某个仓库准备升级。它会访问 npm registry 与 GitHub 取元数据，写入 `$DSH_HOME/upkeep/state.json`，为隔离升级创建 `<repo>/.worktrees/upkeep/<run>`，并运行 `git`/`gh` 与你配置的验证命令。它不会改你的源码，也不会在你确认前提交或推送。完整清单与干净卸载步骤见 [docs/SECURITY.md](docs/SECURITY.md)；发布流程见 [docs/RELEASE.md](docs/RELEASE.md)。
 
 ## 注意事项
 

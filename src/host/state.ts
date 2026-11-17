@@ -123,6 +123,23 @@ export function emptyState(): UpkeepState {
  * @param home - the profile's home directory.
  * @returns the parsed state, or an empty one when the file is missing or invalid.
  */
+/** Version of the file this build writes. */
+export const STATE_VERSION = 1
+
+/**
+ * Bring an older payload forward instead of discarding it.
+ *
+ * A missing version is the pre-versioning shape, which is field-compatible. A
+ * payload from a NEWER build is returned as-is by `readState` only when it can be
+ * read safely; otherwise it is treated as unknown so the caller starts empty
+ * rather than writing a downgraded file over it.
+ */
+function migrate(record: Record<string, unknown>): Record<string, unknown> | null {
+  const version = typeof record.version === 'number' ? record.version : 0
+  if (version > STATE_VERSION) return null
+  return { ...record, version: STATE_VERSION }
+}
+
 export function readState(home: string): UpkeepState {
   let parsed: unknown
   try {
@@ -130,12 +147,14 @@ export function readState(home: string): UpkeepState {
   } catch {
     return emptyState()
   }
-  if (!isRecord(parsed) || parsed.version !== 1) return emptyState()
-  const checks = Array.isArray(parsed.checks)
-    ? parsed.checks.filter((entry): entry is StoredCheck => isStoredCheck(entry))
+  const migrated = isRecord(parsed) ? migrate(parsed) : null
+  if (migrated === null) return emptyState()
+  const source = migrated
+  const checks = Array.isArray(source.checks)
+    ? source.checks.filter((entry): entry is StoredCheck => isStoredCheck(entry))
     : []
-  const feed = isCachedFeed(parsed.feed) ? parsed.feed : undefined
-  const runs = Array.isArray(parsed.runs) ? parsed.runs.filter((entry): entry is StoredRun => isStoredRun(entry)) : []
+  const feed = isCachedFeed(source.feed) ? source.feed : undefined
+  const runs = Array.isArray(source.runs) ? source.runs.filter((entry): entry is StoredRun => isStoredRun(entry)) : []
   return { version: 1, ...(feed === undefined ? {} : { feed }), checks, runs }
 }
 
