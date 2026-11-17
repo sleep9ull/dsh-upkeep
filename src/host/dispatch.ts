@@ -325,6 +325,8 @@ export interface HubDeps {
   exec?: ExecRunner
   /** One-shot timer for deferred cleanup; tests inject a capture. */
   setTimer?: (callback: () => void, ms: number) => void
+  /** Delay before the startup pass; tests shrink it. */
+  startupDelayMs?: number
   now?: () => number
   home?: string
   /** Disable the delayed startup check (tests). */
@@ -542,6 +544,30 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     } finally {
       busy = null
     }
+  }
+
+  /**
+   * Bring stored task launchers forward to the installed version.
+   *
+   * Runs at startup and at the head of every check, so an upgrade reaches existing
+   * tasks even when the author never opens the panel; a prompt the author rewrote
+   * is never touched.
+   * @returns warnings for anything refused or unreadable.
+   */
+  async function refreshLaunchers(): Promise<string[]> {
+    const warnings: string[] = []
+    const scheduler = scheduleService(ctx)
+    if (scheduler === undefined) return warnings
+    try {
+      for (const task of await listUpkeepTasks(scheduler)) {
+        if (await reconcileTaskPrompt(scheduler, task)) {
+          warnings.push(`Refreshed the launcher of ${task.title} to this version.`)
+        }
+      }
+    } catch {
+      warnings.push('The stored scheduled tasks could not be inspected; they keep their current launcher.')
+    }
+    return warnings
   }
 
   /**
@@ -801,20 +827,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     let targetOverride: TargetVersion | undefined
     let cachedFeed = state.feed
 
-    // A stored task carries only a launcher; bring old generations forward so the
-    // next delivery follows the installed version.
-    const scheduler = scheduleService(ctx)
-    if (scheduler !== undefined) {
-      try {
-        for (const task of await listUpkeepTasks(scheduler)) {
-          if (await reconcileTaskPrompt(scheduler, task)) {
-            warnings.push(`Refreshed the launcher of ${task.title} to this version.`)
-          }
-        }
-      } catch {
-        warnings.push('The stored scheduled tasks could not be inspected; they keep their current launcher.')
-      }
-    }
+    warnings.push(...await refreshLaunchers())
 
     const configured = config.targetVersion.trim()
     const pinning = configured !== '' && parseVersion(configured) !== undefined
@@ -1211,11 +1224,16 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     },
   }
 
-  // One delayed startup check, unref'd so it never holds the process open.
-  if (config.checkOnStartup && deps.startupCheck !== false) {
+  // One delayed startup pass, unref'd so it never holds the process open. The
+  // launcher refresh runs even when the startup check is disabled, so a plugin
+  // upgrade reaches existing tasks either way.
+  if (deps.startupCheck !== false) {
     startupTimer = setTimeout(() => {
-      void runCheck({ caller: 'schedule' }).catch(() => undefined)
-    }, 2_000)
+      void (async () => {
+        await refreshLaunchers().catch(() => undefined)
+        if (config.checkOnStartup) await runCheck({ caller: 'schedule' }).catch(() => undefined)
+      })()
+    }, deps.startupDelayMs ?? 2_000)
     startupTimer.unref?.()
   }
 

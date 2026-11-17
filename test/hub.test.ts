@@ -912,3 +912,38 @@ test('check refreshes an old launcher but leaves a rewritten prompt alone', asyn
   assert.ok(status.brief.lines.some(line => /P0 \(data loss/.test(line)))
   assert.ok(status.warnings.some(warning => /Refreshed the launcher/.test(warning)))
 })
+
+test('startup refreshes old launchers even when the startup check is off', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-startup-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-startup-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-startup-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(packageDir, { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: '@sleep9ull/plugin', version: '1.0.0', engines: { dsh: '^0.2.2-rc.1' } }))
+
+  const edits: Array<Record<string, unknown>> = []
+  const schedule = {
+    create: async () => ({}),
+    catalog: async () => [{
+      id: 'old', title: 'Upkeep compatibility check', status: 'active', updatedAt: 'T1',
+      prompt: 'Run the dsh-upkeep compatibility check.\n\nold\n\n<!-- upkeep-task:v1 -->',
+    }],
+    edit: async (request: unknown) => { edits.push(request as Record<string, unknown>); return { id: 'old' } },
+  }
+  // checkOnStartup stays false: only the launcher refresh should run.
+  createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [] }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+    schedule,
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false, checkOnStartup: false }), {
+    home, now: () => 30_000, startupDelayMs: 0,
+  })
+
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(edits.length, 1, 'the stored launcher was refreshed at startup')
+  assert.equal(edits[0]?.id, 'old')
+  assert.match(((edits[0]?.patch as { prompt: string }).prompt), /follow the `brief` block/)
+})
