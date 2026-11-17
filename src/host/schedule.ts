@@ -203,6 +203,22 @@ export async function reconcileTaskPrompt(
   return isRecord(answer) && answer.code !== 'schedule_conflict'
 }
 
+/**
+ * How often a task repeats, in seconds.
+ *
+ * A catalog record carries `everySeconds` for interval tasks only; a daily task
+ * expresses its cadence through its timing, so it is derived here to keep the
+ * panel from showing a bare time with no cadence.
+ */
+function everySecondsOf(entry: Record<string, unknown>): number | null {
+  if (typeof entry.everySeconds === 'number') return entry.everySeconds
+  const timing = entry.timing
+  if (!isRecord(timing)) return null
+  if (timing.kind === 'daily') return 86_400
+  if (timing.kind === 'weekly') return 7 * 86_400
+  return null
+}
+
 /** Reduce a live catalog to the tasks this plugin owns and the panel can show. */
 export function scheduledTaskViews(entries: unknown[]): ScheduledTaskView[] {
   const views: ScheduledTaskView[] = []
@@ -216,7 +232,7 @@ export function scheduledTaskViews(entries: unknown[]): ScheduledTaskView[] {
     views.push({
       bundle: scope.kind === 'all' ? null : scope.bundle,
       title,
-      everySeconds: typeof entry.everySeconds === 'number' ? entry.everySeconds : null,
+      everySeconds: everySecondsOf(entry),
       nextAt: typeof entry.scheduledAt === 'string' ? entry.scheduledAt : null,
     })
   }

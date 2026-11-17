@@ -199,7 +199,7 @@ ELECTRON_RUN_AS_NODE=1 "$DSH_NODE_EXECUTABLE" "$DSH_INSTALL_DIR/lib/bin.js" --ve
 | D8 | **升级知识来源** | 本地 `docs/upgrade-guide` 为主；目标版本比安装版新时按 GitHub tag 拉取；持久化变化用 `persistence-schema.json` diff | 唯一权威、结构规整、可离线；GitHub tag 已验证可用 |
 | D9 | **对 DSH 内部 API 的依赖** | 核心判定逻辑 **vendor** 一份（约 40 行）+ 运行时能力探测；只把 `ctx.*` 服务当稳定 API | app-boot 无稳定性承诺且形状变过；vendor 保证插件自身不会因内部 API 变化而崩 |
 | D10 | **实验包依赖** | worktree / forge 做成**可选能力**：检测到就用，缺失走 Host `git`/`gh` 降级 | 实验包桌面默认未挂载；硬依赖会让插件在默认 profile 里不工作 |
-| D11 | **自身兼容声明** | 写宽 `engines.dsh`（如 `>=0.2.2-rc.1 <0.3.0`），peer 只声明真正共享的包；发布前跑跨版本矩阵 | `engines.dsh` 一旦存在就独占判定，能防止 peer 把自己锁死 |
+| D11 | **自身兼容声明** | 只声明**实际验证过的**范围：当前为 `>=0.2.2-rc.3 <0.3.0`；peer 只声明真正共享的包；跨版本矩阵做成后再逐个放宽 | `engines.dsh` 一旦存在就独占判定，能防止 peer 把自己锁死；声明未验证的版本等于给用户假信号 |
 | D12 | **验证 oracle** | L1 静态 → L2 `--dump-config` → L3 `headless` 启动 → L4 跨版本实验台；逐级启用、逐级超时/降级 | 越往后越真实但越贵/越慢；默认跑 L1+L2，用户可选 L3/L4 |
 | D13 | **监测范围** | 排除 `@deepseek-ai/*`（DSH 自带包），并用 `excluded` 计数透明报告排除了多少 bundle / 条目 | 官方包随 DSH 版本发布，列入监测只会产生噪声；"排除了什么"必须可见，否则用户会以为漏了 |
 | D14 | **归属判定** | 只用证据判定 `mine/other/unknown`：包 scope、author、repository、本地 checkout 的 git remote，与本地身份（`ownerHandles`/`ownerEmails` 配置、`~/.gitconfig`、gh 登录）匹配；无信号就是 `unknown`；每条判定带证据 token | 产品问题是"**我的**插件要不要维护"；猜错会制造噪音或漏报，所以宁可显示未知并提供证据 |

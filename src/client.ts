@@ -288,6 +288,8 @@ interface Window {
         failed: 'load error',
         excluded: 'Excluded',
         officialRule: 'Official @deepseek-ai packages ship with DSH and are not monitored.',
+        globalCheck: 'Global check:',
+        scheduleDeleteHint: 'manage it in Automation tasks',
         status: 'Status',
         needsCare: 'Needs care',
         healthy: 'Healthy',
@@ -381,6 +383,8 @@ interface Window {
         failed: '加载失败',
         excluded: '已排除',
         officialRule: '官方 @deepseek-ai 插件随 DSH 发布，不纳入监测。',
+        globalCheck: '全局检查：',
+        scheduleDeleteHint: '可在 Automation tasks 中管理',
         status: '状态',
         needsCare: '需维护',
         healthy: '正常',
@@ -949,9 +953,11 @@ interface Window {
         const scheduledTasks = scheduledInfo !== undefined && Array.isArray(scheduledInfo.tasks) ? scheduledInfo.tasks : []
         const scheduleAvailable = data && data.capabilities ? data.capabilities.schedule !== false : true
         /** The live task that watches one bundle: its own, or the profile-wide one. */
+        // Only a task that names this bundle answers for it; a global task is shown
+        // once, under the table, instead of being claimed by whichever row asked first.
         const taskFor = (name: string): typeof scheduledTasks[number] | undefined =>
           scheduledTasks.find(task => typeof task.bundle === 'string' && task.bundle === name)
-          ?? scheduledTasks.find(task => task.bundle === null || task.bundle === undefined)
+        const globalTask = scheduledTasks.find(task => task.bundle === null || task.bundle === undefined)
         /** `8:00am` in English, `上午8:00` in Chinese: the task's local time of day. */
         const clockOf = (iso: string): string => {
           const at = Date.parse(iso)
@@ -1029,6 +1035,11 @@ interface Window {
         const excluded = data && data.excluded ? data.excluded : null
         const excludedBundles = excluded && typeof excluded.bundles === 'number' ? excluded.bundles : 0
         const excludedEntries = excluded && typeof excluded.entries === 'number' ? excluded.entries : 0
+        // A task created without a bundle covers every plugin: say so once, plainly.
+        const globalLine = globalTask === undefined
+          ? null
+          : h('div', { className: 'upkeep-footer upkeep-global-task' },
+              h('span', null, t('globalCheck') + ' ' + describeSchedule(globalTask)))
         const footer = h('div', { className: 'upkeep-footer' },
           h('span', null, t('officialRule')),
           excludedBundles > 0 || excludedEntries > 0
@@ -1291,6 +1302,7 @@ interface Window {
                     : null)
               : null,
             groups,
+            globalLine,
             footer,
             scheduleModal,
             upgradeModal))

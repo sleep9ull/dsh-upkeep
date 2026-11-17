@@ -128,7 +128,7 @@ Upkeep reads your installed plugins, and on request prepares an upgrade of one r
 
 ## Notes and limitations
 
-- **Verified on DSH `0.2.2-rc.3`**, declared range `>=0.2.2-rc.1 <0.3.0`.
+- **Verified on DSH `0.2.2-rc.3`**, and the declared range says exactly that: `>=0.2.2-rc.3 <0.3.0`. Earlier prereleases are not claimed — they were never tested, and the internal surfaces this plugin reads do change between them.
 - **The PR path needs the host `gh` CLI signed in**; merging needs `allowMerge` and a fresh confirmation. Nothing is pushed unattended.
 - **A linked checkout serves `dist/`.** Build before installing or reloading; Host changes need a Harness restart, client changes only a page refresh.
 - **A worktree starts from HEAD.** Uncommitted changes are not copied; the panel warns when the repository is dirty. Merging a run retires its worktree and branch.

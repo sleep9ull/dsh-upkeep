@@ -15,6 +15,7 @@ import {
   createUpkeepTask,
   listUpkeepTasks,
   scheduleService,
+  scheduledTaskViews,
 } from '../dist/host/schedule.js'
 import type { ScheduleServiceLike } from '../dist/host/schedule.js'
 
@@ -121,4 +122,15 @@ test('the stored prompt is a launcher that delegates the policy', () => {
   assert.equal(isLauncherPrompt(prompt), true)
   assert.equal(isLauncherPrompt('Do my own thing <!-- upkeep-task:v1 -->'), false)
   assert.equal(isLauncherPrompt(LAUNCHER_HEAD + ' but no marker'), false)
+})
+
+test('a daily task reports its cadence even without everySeconds', () => {
+  const views = scheduledTaskViews([
+    { id: 'a', title: 'Upkeep compatibility check', status: 'active', timing: { kind: 'daily', daily: { time: '08:00:00', time_zone: 'Asia/Shanghai' } }, scheduledAt: '2026-01-02T00:00:00.000Z' },
+    { id: 'b', title: 'Upkeep: @a/b', status: 'active', everySeconds: 3600, scheduledAt: '2026-01-01T09:00:00.000Z' },
+  ])
+  const daily = views.find(view => view.title === 'Upkeep compatibility check')
+  assert.equal(daily?.everySeconds, 86_400, 'a daily timing is one day')
+  const hourly = views.find(view => view.title === 'Upkeep: @a/b')
+  assert.equal(hourly?.everySeconds, 3_600)
 })
