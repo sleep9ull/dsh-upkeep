@@ -594,19 +594,30 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     return cleaned.length > 0 ? [...new Set(cleaned)] : DEFAULT_REGISTRIES
   }
 
-  /** Which guide window applies: future releases when the target is newer, else the installed history. */
-  function guideWindow(): { from: string | null; to: string | null } {
+  /**
+   * Which releases the report covers.
+   *
+   * Only releases NEWER than the running DSH can break a plugin that works today,
+   * so the window is `[running, target)`. `null` means there is nothing to migrate:
+   * a target that is not newer than the running version. Reporting the whole
+   * installed history instead would list changes the plugin already absorbed.
+   */
+  function guideWindow(): { from: string | null; to: string | null } | null {
     const runtime = readRuntimeVersion(profile).version
     const target = targetFromState(config, readState(home), now())
-    if (runtime !== null && target.version !== null && compareVersions(target.version, runtime) > 0) {
-      return { from: runtime, to: target.version }
+    if (runtime === null) {
+      // Unknown running version: still bound the upper end when a target exists.
+      return target.version === null ? null : { from: null, to: target.version }
     }
-    return { from: null, to: null }
+    if (target.version === null) return { from: runtime, to: null }
+    if (compareVersions(target.version, runtime) > 0) return { from: runtime, to: target.version }
+    return null
   }
 
   /** Load installed guides and, for a newer target, the missing ones from the release tag. */
   async function loadGuides(): Promise<{ guides: GuideSet; warnings: string[] }> {
     const window = guideWindow()
+    if (window === null) return { guides: { source: 'none', versions: [], items: [], warnings: [] }, warnings: [] }
     const installed = readInstalledGuides(profile?.installAnchor, window.from, window.to)
     const warnings = [...installed.warnings]
     if (window.to === null) return { guides: installed, warnings }
