@@ -1224,6 +1224,21 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
         return { refreshed: warnings.length > 0, warnings }
       },
     },
+    'schedule.remove': {
+      kind: 'write',
+      description: 'Delete the scheduled check this plugin owns (needs confirm).',
+      run: async (input) => {
+        if (input.confirm !== true) throw new HubError('CONFIRM_REQUIRED', 'Removing a scheduled task needs confirm: true.')
+        const scheduler = scheduleService(ctx)
+        if (scheduler === undefined) throw new HubError('SCHEDULE_UNAVAILABLE', 'The schedule service is not mounted.')
+        const bundle = typeof input.bundle === 'string' ? input.bundle : ''
+        if (bundle === '') throw new HubError('INVALID_INPUT', 'A bundle name is required.')
+        const task = (await listUpkeepTasks(scheduler)).find(entry => entry.bundle === bundle)
+        if (task === undefined || task.id === null) throw new HubError('TASK_NOT_FOUND', 'No scheduled check belongs to this plugin.')
+        const removed = await removeOneShotTask(scheduler, task.id)
+        return { removed, bundle }
+      },
+    },
     'schedule.list': {
       kind: 'read',
       description: 'Recurring compatibility checks this plugin created.',

@@ -53,7 +53,7 @@ test('status reads the runtime version, profile and bundles', async () => {
       { name: '@example/a', version: '1.2.3', enabled: true, official: false, availability: 'profile', rows: [{}, {}] },
       { name: '@example/b', version: '0.1.0', enabled: false, official: true, availability: 'installation', rows: [], error: { code: 'incompatible-version', diagnostic: 'engines.dsh rejects 0.2.2-rc.3' } },
     ],
-  }), normalizeConfig(undefined), TEST_DEPS)
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false }), TEST_DEPS)
 
   const status = await hub.call('status', {}, { caller: 'client' }) as {
     plugin: { name: string; version: string }
@@ -76,7 +76,7 @@ test('status reads the runtime version, profile and bundles', async () => {
 })
 
 test('status degrades with warnings instead of throwing', async () => {
-  const hub = createHub(fakeContext({ failBundles: true }), normalizeConfig(undefined), TEST_DEPS)
+  const hub = createHub(fakeContext({ failBundles: true }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false }), TEST_DEPS)
   const status = await hub.call('status', {}, { caller: 'tool' }) as { bundles: unknown[]; warnings: string[] }
   assert.equal(status.bundles.length, 0)
   assert.equal(status.warnings.length, 1)
@@ -94,7 +94,7 @@ test('official @deepseek-ai packages are excluded and reported, not silently dro
       { moduleName: '@deepseek-ai/dsh-web' },
       { moduleName: 'dsh-context' },
     ],
-  }), normalizeConfig(undefined), TEST_DEPS)
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false }), TEST_DEPS)
 
   const status = await hub.call('status', {}, { caller: 'client' }) as {
     bundles: Array<{ name: string }>
@@ -115,7 +115,7 @@ test('bundles.list projects the same bundle summaries', async () => {
       { name: '@example/a', version: '1.0.0', enabled: true, rows: [] },
       { name: '@deepseek-ai/dsh-base', version: '0.2.2-rc.3', enabled: true, rows: [] },
     ],
-  }), normalizeConfig(undefined), TEST_DEPS)
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false }), TEST_DEPS)
   const listed = await hub.call('bundles.list', {}, { caller: 'client' }) as {
     bundles: Array<{ name: string }>
     excluded: { bundles: number; entries: number }
@@ -164,7 +164,7 @@ test('ownership joins the local identity and decides which plugins need care', a
 })
 
 test('unknown actions fail with a stable code', async () => {
-  const hub = createHub(fakeContext(), normalizeConfig(undefined), TEST_DEPS)
+  const hub = createHub(fakeContext(), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false }), TEST_DEPS)
   await assert.rejects(
     () => hub.call('does.not.exist', {}, { caller: 'client' }),
     (error: unknown) => (error as { code?: string }).code === 'UNKNOWN_ACTION',
@@ -435,7 +435,7 @@ test('schedule.create asks for confirmation and creates the recurring check', as
 })
 
 test('without the schedule service the actions degrade explicitly', async () => {
-  const hub = createHub(fakeContext(), normalizeConfig(undefined), TEST_DEPS)
+  const hub = createHub(fakeContext(), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false }), TEST_DEPS)
   await assert.rejects(
     () => hub.call('schedule.create', { confirm: true }, { caller: 'client' }),
     (error: unknown) => (error as { code?: string }).code === 'SCHEDULE_UNAVAILABLE',
@@ -567,7 +567,7 @@ test('schedule.create at a chosen time makes a daily task in that zone', async (
     },
     catalog: async () => [],
   }
-  const hub = createHub(fakeContext({ schedule }), normalizeConfig(undefined), TEST_DEPS)
+  const hub = createHub(fakeContext({ schedule }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false }), TEST_DEPS)
 
   const created = await hub.call('schedule.create', {
     confirm: true,
@@ -992,4 +992,52 @@ test('a preparation that cannot register its workspace removes the worktree it m
   await assert.rejects(() => hub.call('upgrade.prepare', { bundle: '@sleep9ull/plugin', worktree: true, confirm: true }, { caller: 'client' }))
   assert.ok(calls.some(call => call[1] === 'worktree' && call[2] === 'remove'), 'the orphan worktree was removed')
   assert.ok(calls.some(call => call[1] === 'branch' && call[2] === '-D'), 'and its branch too')
+})
+
+test('schedule.remove deletes only the task that belongs to the named plugin', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-remove-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-remove-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-remove-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(packageDir, { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: '@sleep9ull/plugin', version: '1.0.0', engines: { dsh: '^0.2.2-rc.3' } }))
+
+  const edits: Array<Record<string, unknown>> = []
+  const schedule = {
+    create: async () => ({}),
+    catalog: async () => [
+      { id: 'mine', title: 'Upkeep: @sleep9ull/plugin', status: 'active', updatedAt: 'T1', everySeconds: 86_400 },
+      { id: 'other', title: 'Upkeep: @sleep9ull/other', status: 'active', updatedAt: 'T2', everySeconds: 86_400 },
+      { id: 'global', title: 'Upkeep compatibility check', status: 'active', updatedAt: 'T3', everySeconds: 86_400 },
+    ],
+    edit: async (request: unknown) => { edits.push(request as Record<string, unknown>); return { id: 'mine', deleted: true } },
+  }
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [] }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+    schedule,
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false }), {
+    home, startupCheck: false, now: () => 50_000,
+  })
+
+  await assert.rejects(
+    () => hub.call('schedule.remove', { bundle: '@sleep9ull/plugin', confirm: false }, { caller: 'client' }),
+    (error: unknown) => (error as { code?: string }).code === 'CONFIRM_REQUIRED',
+  )
+
+  const removed = await hub.call('schedule.remove', { bundle: '@sleep9ull/plugin', confirm: true }, { caller: 'client' }) as { removed: boolean }
+  assert.equal(removed.removed, true)
+  assert.equal(edits.length, 1, 'one task deleted')
+  assert.equal(edits[0]?.id, 'mine')
+  assert.equal(edits[0]?.action, 'delete')
+  assert.equal(edits[0]?.expectedUpdatedAt, 'T1')
+
+  // A plugin without a task gets a stable refusal rather than deleting something else.
+  await assert.rejects(
+    () => hub.call('schedule.remove', { bundle: '@sleep9ull/nothing', confirm: true }, { caller: 'client' }),
+    (error: unknown) => (error as { code?: string }).code === 'TASK_NOT_FOUND',
+  )
 })

@@ -97,7 +97,7 @@ Loader 行接受以下配置（括号内为默认值）：
 | `checksToKeep` | `20` | 保留多少条检查报告。 |
 | `analyzeOnCheck` | `true` | 检查时是否同时匹配迁移指南。 |
 | `concurrency` | `2` | 一次检查并发处理多少插件（1–8）。 |
-| `verifyCommands` | `[]` | 「验证」执行的命令；留空从 package scripts 推导。 |
+| `verifyCommands` | `[]` | 「验证」执行的命令，在工作区里用 `sh -c` 执行（等于拥有你的命令行权限）；留空从 package scripts 推导。 |
 | `runsToKeep` | `10` | 保留多少条升级运行记录。 |
 | `ignoreWorktrees` | `true` | 是否把 `.worktrees/` 写入本 clone 的 `.git/info/exclude`；关闭则完全不改你的仓库（面板会给出警告）。 |
 | `worktreesToKeep` | `5` | 每个仓库保留多少个升级 worktree；超出时在新建前删除最旧的及其 `upkeep/*` 分支。`0` 表示全部保留。 |

@@ -149,6 +149,8 @@ type Store = {
   merge(runId: string): Promise<void>
   /** Create the daily compatibility check for one plugin at a local time. */
   createSchedule(bundle: string, time: string): Promise<void>
+  /** Delete the scheduled check belonging to one plugin. */
+  removeSchedule(bundle: string): Promise<void>
 }
 
 /* ---- the Cordis services the plugin is applied to ---------------- */
@@ -340,6 +342,11 @@ interface Window {
         cancel: 'Cancel',
         scheduleTime: 'Time of day',
         scheduleTitle: 'Schedule a compatibility check',
+        stopTitle: 'Stop this scheduled check',
+        stopHint: 'The task is deleted; you can schedule a new check at any time.',
+        stopSchedule: 'Stop',
+        stopScheduleHint: 'Delete the scheduled check for this plugin.',
+        scheduleStopped: 'Stopped the scheduled check for {bundle}.',
         scheduleHint: 'The task runs every day at this local time and reports which plugins need care.',
         everyday: 'everyday',
         everyHour: 'every hour',
@@ -435,6 +442,11 @@ interface Window {
         cancel: '取消',
         scheduleTime: '每天的时间',
         scheduleTitle: '创建定时兼容性检查',
+        stopTitle: '停止这条定时检查',
+        stopHint: '该任务会被删除；随时可以重新创建。',
+        stopSchedule: '停止',
+        stopScheduleHint: '删除该插件的定时检查。',
+        scheduleStopped: '已停止 {bundle} 的定时检查。',
         scheduleHint: '任务每天在这个本地时间运行，并汇报哪些插件需要维护。',
         everyday: '每天',
         everyHour: '每小时',
@@ -529,6 +541,7 @@ interface Window {
 
 [data-upkeep] .upkeep-empty { padding: 12px 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 [data-upkeep] .upkeep-muted { color: var(--dsw-alias-label-secondary); font-size: 11px; }
+[data-upkeep] .upkeep-stop { height: 20px; padding: 0 6px; font-size: 11px; }
 [data-upkeep] .upkeep-cadence { color: var(--dsw-alias-label-secondary); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 [data-upkeep] .upkeep-footer { display: flex; flex-direction: column; gap: 3px; padding-top: 10px; border-top: .5px solid var(--dsw-alias-border-l1); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 16px; }
 
@@ -740,6 +753,21 @@ interface Window {
           if (created) await read('status', 'loading')
         }
 
+        const removeSchedule = async (bundle: string): Promise<void> => {
+          publish({ phase: 'checking', data: state.data, error: null, notice: state.notice })
+          try {
+            const answer = await callHost(ctx, 'schedule.remove', { bundle, confirm: true })
+            if (!answer.ok) {
+              publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'error', text: answer.error.code + ': ' + answer.error.message } })
+              return
+            }
+            publish({ phase: 'ready', data: state.data, error: null, notice: { kind: 'ok', text: t('scheduleStopped', { bundle }) } })
+          } finally {
+            running = false
+          }
+          await read('status', 'loading')
+        }
+
         const verify = async (runId: string): Promise<void> => {
           publish({ phase: 'checking', data: state.data, error: null, notice: state.notice })
           try {
@@ -779,6 +807,7 @@ interface Window {
           createPr,
           merge,
           createSchedule,
+          removeSchedule,
         }
       }
 
@@ -825,6 +854,7 @@ interface Window {
           busy: boolean
           onUpgrade?: ((bundle: BundleSummary) => void) | null
           onSchedule?: ((bundle: BundleSummary) => void) | null
+          onStopSchedule?: ((bundle: BundleSummary) => void) | null
         },
       ): Child {
         if (bundles.length === 0) return h('div', { className: 'upkeep-empty' }, emptyText)
@@ -891,7 +921,15 @@ interface Window {
                   ].filter(part => part !== '').join(' · ')
                   cells.push(h('td', { key: 'scheduled', className: 'upkeep-col-scheduled upkeep-scheduled' },
                     task !== undefined
-                      ? h('span', { className: 'upkeep-cadence', title: hint }, cadence)
+                      ? h('span', { className: 'upkeep-cadence', title: hint }, cadence,
+                          options.onStopSchedule
+                            ? h('button', {
+                                className: 'upkeep-btn upkeep-btn-xs upkeep-stop',
+                                type: 'button',
+                                title: t('stopScheduleHint'),
+                                onClick: () => options.onStopSchedule?.(bundle),
+                              }, t('stopSchedule'))
+                            : null)
                       : options.onSchedule !== null && options.onSchedule !== undefined
                         ? h('button', {
                             className: 'upkeep-btn upkeep-btn-xs',
@@ -1092,6 +1130,7 @@ interface Window {
                   busy,
                   onUpgrade: key === 'mine' ? requestUpgrade : null,
                   onSchedule: key === 'mine' ? requestSchedule : null,
+                  onStopSchedule: key === 'mine' ? requestStop : null,
                 }))
         }
 
@@ -1102,6 +1141,7 @@ interface Window {
           const name = bundle.name || ''
           if (name === '') return
           setScheduleTime(DEFAULT_SCHEDULE_TIME)
+          setScheduleMode('create')
           setScheduleTarget(name)
         }
 
@@ -1120,6 +1160,25 @@ interface Window {
          * The scheduling dialog. It renders inside the panel tree because the client
          * half has no react-dom (no portal), so it is pinned to the viewport instead.
          */
+        const [scheduleMode, setScheduleMode] = React.useState('create')
+
+        /** Ask before deleting the scheduled check of one plugin. */
+        const requestStop = (bundle: BundleSummary): void => {
+          const name = bundle.name || ''
+          if (name === '') return
+          setScheduleMode('stop')
+          setScheduleTarget(name)
+        }
+
+        /** Confirmed: delete the task, then re-read the snapshot. */
+        const saveStop = (): void => {
+          if (scheduleTarget === null) return
+          const target = scheduleTarget
+          setScheduleTarget(null)
+          setScheduleMode('create')
+          void store.removeSchedule(target)
+        }
+
         const scheduleModal = scheduleTarget === null
           ? null
           : h('div', {
@@ -1136,19 +1195,23 @@ interface Window {
                 'aria-describedby': 'upkeep-schedule-hint',
                 onKeyDown: (event: UiEvent) => { if (event.key === 'Escape') closeSchedule() },
               },
-                h('h4', { className: 'upkeep-modal-title', id: 'upkeep-modal-title' }, t('scheduleTitle')),
+                h('h4', { className: 'upkeep-modal-title', id: 'upkeep-modal-title' },
+                  scheduleMode === 'stop' ? t('stopTitle') : t('scheduleTitle')),
                 h('p', { className: 'upkeep-modal-line' }, scheduleTarget),
-                h('label', { className: 'upkeep-modal-field' },
-                  h('span', null, t('scheduleTime')),
-                  h('input', {
-                    className: 'upkeep-time',
-                    type: 'time',
-                    step: '60',
-                    autoFocus: true,
-                    value: scheduleTime,
-                    onChange: (event: UiEvent) => setScheduleTime(event.target?.value ?? ''),
-                  })),
-                h('p', { className: 'upkeep-modal-hint', id: 'upkeep-schedule-hint' }, t('scheduleHint')),
+                scheduleMode === 'stop'
+                  ? null
+                  : h('label', { className: 'upkeep-modal-field' },
+                      h('span', null, t('scheduleTime')),
+                      h('input', {
+                        className: 'upkeep-time',
+                        type: 'time',
+                        step: '60',
+                        autoFocus: true,
+                        value: scheduleTime,
+                        onChange: (event: UiEvent) => setScheduleTime(event.target?.value ?? ''),
+                      })),
+                h('p', { className: 'upkeep-modal-hint', id: 'upkeep-schedule-hint' },
+                  scheduleMode === 'stop' ? t('stopHint') : t('scheduleHint')),
                 h('div', { className: 'upkeep-modal-actions' },
                   h('button', { className: 'upkeep-btn', type: 'button', onClick: closeSchedule }, t('cancel')),
                   h('button', {

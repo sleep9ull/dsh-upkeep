@@ -97,7 +97,7 @@ The Loader row accepts the following configuration (defaults shown):
 | `checksToKeep` | `20` | How many check reports to retain. |
 | `analyzeOnCheck` | `true` | Whether a check also matches the migration guides. |
 | `concurrency` | `2` | How many plugins one check inspects at a time (1–8). |
-| `verifyCommands` | `[]` | Commands used by Verify; empty derives them from package scripts. |
+| `verifyCommands` | `[]` | Commands used by Verify, run with `sh -c` in the workspace (they carry your shell rights); empty derives them from package scripts. |
 | `runsToKeep` | `10` | How many upgrade runs to retain. |
 | `ignoreWorktrees` | `true` | Add `.worktrees/` to this clone's `.git/info/exclude`; turn it off to leave the clone untouched (the panel then warns). |
 | `worktreesToKeep` | `5` | How many upgrade worktrees to keep per repository; older ones and their `upkeep/*` branches are removed when a new one is prepared. `0` keeps all. |

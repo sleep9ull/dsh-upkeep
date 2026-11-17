@@ -134,3 +134,12 @@ test('a daily task reports its cadence even without everySeconds', () => {
   const hourly = views.find(view => view.title === 'Upkeep: @a/b')
   assert.equal(hourly?.everySeconds, 3_600)
 })
+
+test('a task title distinguishes the global check from a per-plugin one', () => {
+  assert.equal(taskTitleFor({ kind: 'all' }), TASK_TITLE)
+  assert.equal(taskTitleFor({ kind: 'bundle', bundle: '@a/b' }), 'Upkeep: @a/b')
+  assert.deepEqual(parseUpkeepTitle(TASK_TITLE), { kind: 'all' })
+  assert.deepEqual(parseUpkeepTitle('Upkeep: @a/b'), { kind: 'bundle', bundle: '@a/b' })
+  // Old and new titles both resolve, so an upgrade never orphans a task.
+  assert.equal(scheduledTaskViews([{ title: TASK_TITLE, status: 'active', everySeconds: 86_400 }]).length, 1)
+})
