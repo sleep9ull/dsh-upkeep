@@ -8,10 +8,9 @@
 
 > **Status: `0.1.0`, early release.** The package is published as **`@sleep9ull/dsh-upkeep`**:
 > `dsh plugin --profile <name> add @sleep9ull/dsh-upkeep`.
-> Verified on **DSH `0.2.2-rc.3` on macOS**, in English and Chinese. The monitoring,
-> upgrade-prepare, scheduled-check and panel paths have been exercised end to end;
-> **the pull-request step is implemented and unit-tested but has not yet been run
-> against a real GitHub repository**, so try it on a scratch repository first.
+> Verified end to end on **DSH `0.2.2-rc.3` on macOS**, in English and Chinese:
+> monitoring, upgrade preparation and its session, verification, the pull-request
+> step, and scheduled checks.
 
 **The compatibility concierge for [DeepSeek Harness](https://www.deepseek.com/harness/) plugins.**
 
@@ -34,13 +33,23 @@ Everything the panel does is also available to the agent through the `upkeep_sta
 
 ## Install / update
 
-Install the published package into the profile that runs your UI (`web` for an npm install, `desktop` for the desktop app):
+**Recommended: install from the app.** Open **Settings → Plugins → Add plugin**, enter
+
+```
+@sleep9ull/dsh-upkeep
+```
+
+and install. The plugin ships a Host half and a Web half, so the panel appears in the sidebar right after installation; reload the page if it does not.
+
+The same thing from the CLI, into the profile that runs your UI (`web` for an npm install, `desktop` for the desktop app):
 
 ```sh
 dsh plugin --profile desktop add @sleep9ull/dsh-upkeep
 ```
 
-Until `0.1.0` is on the registry, install from a checkout instead:
+Updating is the same command again, or **Plugins → Update** in the app.
+
+### Installing from a checkout (development)
 
 ```sh
 git clone https://github.com/sleep9ull/dsh-upkeep.git
@@ -49,15 +58,7 @@ npm install
 npm run build
 ```
 
-Then open **Settings → Plugins → Add plugin** in the DSH web or desktop app, choose the checkout directory, and install. The bundle is linked, so it serves the built `dist/` — rebuild and restart the Host after changing Host code, and refresh the page after changing client code.
-
-With the `dsh` CLI:
-
-```sh
-dsh plugin --profile <profile> add /absolute/path/to/dsh-upkeep
-```
-
-Use the profile that runs your Web UI (`web` for an npm install, `desktop` for the desktop app). Updating means pulling the checkout, `npm install && npm run build`, and reloading.
+Then **Settings → Plugins → Add plugin** with the checkout directory, or `dsh plugin --profile <profile> add /absolute/path/to/dsh-upkeep`. The bundle is linked, so it serves the built `dist/`: rebuild and restart the Host after Host changes, refresh the page after client changes.
 
 ## Usage
 

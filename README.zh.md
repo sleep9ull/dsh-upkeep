@@ -8,9 +8,8 @@
 
 > **状态：`0.1.0`，早期版本。** 包名是 **`@sleep9ull/dsh-upkeep`**：
 > `dsh plugin --profile <name> add @sleep9ull/dsh-upkeep`。
-> 已在 **macOS 上的 DSH `0.2.2-rc.3`** 验证，支持中英文。监测、升级准备、定时检查与面板
-> 这几条路径已经真机走过；**创建 PR 那一步实现了也有单测，但还没有在真实 GitHub 仓库上跑过**，
-> 建议先拿一个测试仓库试。
+> 已在 **macOS 上的 DSH `0.2.2-rc.3`** 端到端验证，支持中英文：监测、升级准备与会话、
+> 验证、创建 PR、定时检查。
 
 **为 [DeepSeek Harness](https://www.deepseek.com/harness/) 插件作者准备的兼容性管家。**
 
@@ -33,13 +32,23 @@
 
 ## 安装 / 更新
 
-把发布版装进运行界面的那个 profile（npm 安装在 `web`，桌面应用在 `desktop`）：
+**推荐：在应用内安装。** 打开 **设置 → Plugins → Add plugin**，输入
+
+```
+@sleep9ull/dsh-upkeep
+```
+
+然后安装。插件同时有 Host 半与 Web 半，装好后侧边栏就会多出面板；如果没有，刷新一下页面。
+
+CLI 等价做法（装进运行界面的那个 profile：npm 安装在 `web`，桌面应用在 `desktop`）：
 
 ```sh
 dsh plugin --profile desktop add @sleep9ull/dsh-upkeep
 ```
 
-`0.1.0` 上架之前，请用下面的本地 checkout 方式安装：
+更新也是同一条命令，或者在应用内 **Plugins → Update**。
+
+### 从本地 checkout 安装（开发用）
 
 ```sh
 git clone https://github.com/sleep9ull/dsh-upkeep.git
@@ -48,15 +57,7 @@ npm install
 npm run build
 ```
 
-然后在 DSH 网页版或桌面版打开 **设置 → Plugins → Add plugin**，选择该目录并安装。bundle 以 link 方式安装，直接服务构建产物 `dist/`——改完 Host 代码需要重新构建并重启 Host，改完客户端代码刷新页面即可。
-
-使用 `dsh` CLI：
-
-```sh
-dsh plugin --profile <profile> add /absolute/path/to/dsh-upkeep
-```
-
-`<profile>` 用你运行 Web UI 的那个（npm 安装用 `web`，桌面版用 `desktop`）。更新时拉取代码后执行 `npm install && npm run build` 并重新加载。
+然后用 **设置 → Plugins → Add plugin** 选择该目录，或 `dsh plugin --profile <profile> add /absolute/path/to/dsh-upkeep`。bundle 以 link 方式安装，直接服务构建产物 `dist/`：改完 Host 代码要重新构建并重启 Host，改完客户端代码刷新页面即可。
 
 ## 使用方法
 
