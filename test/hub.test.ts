@@ -862,3 +862,53 @@ test('merging retires the worktree and its branch', async () => {
   assert.ok(calls.some(call => call[1] === 'worktree' && call[2] === 'remove' && call[4] === prepared.run.workspacePath))
   assert.ok(calls.some(call => call[1] === 'branch' && call[2] === '-D' && call[3] === prepared.run.branch))
 })
+
+test('check refreshes an old launcher but leaves a rewritten prompt alone', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-launch-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-launch-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-launch-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(packageDir, { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: '@sleep9ull/plugin', version: '1.0.0', engines: { dsh: '^0.2.2-rc.1' } }))
+
+  const edits: Array<Record<string, unknown>> = []
+  const schedule = {
+    create: async () => ({}),
+    catalog: async () => [
+      {
+        id: 'old-launcher', title: 'Upkeep compatibility check', status: 'active', updatedAt: 'T1',
+        prompt: 'Run the dsh-upkeep compatibility check.\n\nold instructions\n\n<!-- upkeep-task:v1 -->',
+      },
+      {
+        id: 'customised', title: 'Upkeep compatibility check (mine)', status: 'active', updatedAt: 'T2',
+        prompt: 'My own reminder text <!-- upkeep-task:v1 -->',
+      },
+      { id: 'current', title: 'Upkeep compatibility check (fresh)', status: 'active', updatedAt: 'T3', prompt: 'Run the dsh-upkeep compatibility check.\n\n<!-- upkeep-task:v2 -->' },
+    ],
+    edit: async (request: unknown) => { edits.push(request as Record<string, unknown>); return { id: (request as { id: string }).id } },
+  }
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [] }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+    schedule,
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false, targetVersion: '0.2.2-rc.3' }), {
+    home, startupCheck: false, now: () => 20_000,
+  })
+
+  const status = await hub.call('check', {}, { caller: 'client' }) as { warnings: string[]; brief: { version: number; lines: string[] } }
+
+  assert.equal(edits.length, 1, 'only the outdated launcher is rewritten')
+  assert.equal(edits[0]?.id, 'old-launcher')
+  assert.equal(edits[0]?.action, 'update')
+  assert.equal(edits[0]?.expectedUpdatedAt, 'T1', 'the edit keeps the concurrency token')
+  const patch = edits[0]?.patch as { prompt: string }
+  assert.match(patch.prompt, /follow the `brief` block/)
+
+  // The policy travels with the snapshot, not with the task.
+  assert.ok(status.brief.lines.length >= 4)
+  assert.ok(status.brief.lines.some(line => /P0 \(data loss/.test(line)))
+  assert.ok(status.warnings.some(warning => /Refreshed the launcher/.test(warning)))
+})

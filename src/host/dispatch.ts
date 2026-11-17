@@ -48,7 +48,10 @@ import { summarizeMatches, matchGuides, type ImpactSummary, type GuideMatch } fr
 import { scanSurfaces, type SurfaceInventory } from './surfaces.js'
 import { createExecRunner, type ExecRunner } from './exec.js'
 import {
+  TASK_PROMPT_VERSION,
+  LAUNCHER_HEAD,
   createOneShotTask,
+  reconcileTaskPrompt,
   removeOneShotTask,
   createUpkeepTask,
   isKnownTimeZone,
@@ -300,6 +303,8 @@ export interface StatusSnapshot {
   delivery: { allowMerge: boolean; baseBranch: string }
   /** Optional Host services the profile actually mounted. */
   capabilities: { schedule: boolean; workspaceRegistry: boolean }
+  /** Instructions the scheduled launcher follows, so the stored prompt can stay frozen. */
+  brief: { version: number; lines: string[] }
   /** Scheduled checks already created through the schedule service. */
   scheduled: { available: boolean; tasks: Array<{ bundle: string | null; title: string; everySeconds: number | null; nextAt: string | null }> }
   /** Authorship rollup plus the identity it was matched against. */
@@ -539,6 +544,26 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     }
   }
 
+  /**
+   * What a scheduled session must do this run.
+   *
+   * The task stores only a launcher, so this block is where every policy decision
+   * lives: it changes with the installed plugin, and an old task picks it up on
+   * its next delivery.
+   */
+  function scheduleBrief(): { version: number; lines: string[] } {
+    return {
+      version: TASK_PROMPT_VERSION,
+      lines: [
+        'Report the running and target DSH versions, then which of MY plugins need care and why, with the matched migration-guide items.',
+        'If nothing needs care, say so in one line; do not pad the report.',
+        'Grade anything you noticed that the DSH version change did not cause as P0 (data loss, security, broken build or core path), P1 (real defect with a workaround) or P2 (minor).',
+        'Describe those findings only: no fix, no hint at a fix, no patch, no effort estimate, and do not touch the code involved.',
+        'Never modify the repository in a scheduled run; upgrades happen only from the Upkeep panel.',
+      ],
+    }
+  }
+
   /** Which plugins a live scheduled task already watches, with its cadence. */
   async function readScheduled(): Promise<{
     available: boolean
@@ -750,6 +775,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
       profile: { name: profile?.name ?? null, dir: profile?.dir ?? null },
       target,
       delivery: { allowMerge: config.allowMerge, baseBranch: config.defaultBaseBranch },
+      brief: scheduleBrief(),
       scheduled: await readScheduled(),
       capabilities: {
         schedule: scheduleService(ctx) !== undefined,
@@ -774,6 +800,21 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     const state = readState(home)
     let targetOverride: TargetVersion | undefined
     let cachedFeed = state.feed
+
+    // A stored task carries only a launcher; bring old generations forward so the
+    // next delivery follows the installed version.
+    const scheduler = scheduleService(ctx)
+    if (scheduler !== undefined) {
+      try {
+        for (const task of await listUpkeepTasks(scheduler)) {
+          if (await reconcileTaskPrompt(scheduler, task)) {
+            warnings.push(`Refreshed the launcher of ${task.title} to this version.`)
+          }
+        }
+      } catch {
+        warnings.push('The stored scheduled tasks could not be inspected; they keep their current launcher.')
+      }
+    }
 
     const configured = config.targetVersion.trim()
     const pinning = configured !== '' && parseVersion(configured) !== undefined

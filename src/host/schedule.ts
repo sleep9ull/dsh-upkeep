@@ -67,18 +67,42 @@ export function scheduleService(ctx: { get(name: string): unknown }): ScheduleSe
   }
 }
 
-/** The prompt the scheduled session receives. */
+/**
+ * The launcher a scheduled task stores.
+ *
+ * This text is FROZEN into the user's task at creation, so it must stay small and
+ * stable: it only points at the tool. Everything about how to run the check and
+ * how to report it lives in the plugin's `brief`, so upgrading dsh-upkeep changes
+ * what an existing task does without touching the task.
+ */
+export const TASK_PROMPT_VERSION = 2
+
+/** Marker written on the last line so a stored prompt's generation is readable. */
+export function promptMarker(version: number): string {
+  return `<!-- upkeep-task:v${version} -->`
+}
+
+/** The generation a stored prompt was written at, or 0 when unmarked. */
+export function promptVersionOf(prompt: string): number {
+  const match = /<!-- upkeep-task:v(\d+) -->/.exec(prompt)
+  return match === null ? 0 : Number(match[1])
+}
+
+/** The prompt the scheduled session receives: a launcher, not a policy. */
 export function buildSchedulePrompt(bundle?: string): string {
-  const focus = bundle === undefined
-    ? 'which of MY plugins need care and why'
-    : `whether \`${bundle}\` needs care and why`
+  const focus = bundle === undefined ? '' : ` Focus on the plugin \`${bundle}\`.`
   return [
-    'Run a DeepSeek Harness plugin compatibility check with dsh-upkeep.',
+    'Run the dsh-upkeep compatibility check.',
     '',
-    '1. Call the `upkeep_status` tool with `action: "check"` so the target DSH version and every verdict are fresh.',
-    `2. Report, briefly: the running and target DSH versions; ${focus}; the matched migration-guide items, if any.`,
-    '3. Do not modify any file or repository in this run. If something needs care, say what to do next: open the Upkeep panel and press Upgrade (optionally in a worktree), then Verify and Create PR.',
-  ].join('\n')
+    '1. Call the `upkeep_status` tool with `action: "check"`.',
+    '2. Then follow the `brief` block of its result exactly: it defines what to report, how to',
+    '   grade anything you notice, and what is out of scope. Treat that block as the instructions',
+    '   of the installed dsh-upkeep version, not as a suggestion.',
+    '3. Do not modify any file or repository in this run.',
+    focus,
+    '',
+    promptMarker(TASK_PROMPT_VERSION),
+  ].filter(line => line !== '').join('\n')
 }
 
 /** A wall-clock time of day, normalized to the service's `HH:mm:ss`. */
@@ -149,6 +173,36 @@ export interface ScheduledTaskView {
   nextAt: string | null
 }
 
+/** The first line of every launcher this plugin writes. */
+export const LAUNCHER_HEAD = 'Run the dsh-upkeep compatibility check.'
+
+/** Whether a stored prompt is still our own launcher (and therefore safe to refresh). */
+export function isLauncherPrompt(prompt: string): boolean {
+  return prompt.startsWith(LAUNCHER_HEAD) && prompt.includes('<!-- upkeep-task:v')
+}
+
+/**
+ * Refresh the stored launcher of one of our tasks when the installed version is
+ * newer, leaving anything the user rewrote untouched.
+ * @returns whether the task was updated.
+ */
+export async function reconcileTaskPrompt(
+  service: ScheduleServiceLike,
+  task: { id: string | null; bundle: string | null; prompt: string | null; updatedAt: string | null },
+): Promise<boolean> {
+  if (service.edit === undefined || task.id === null || task.prompt === null) return false
+  if (!isLauncherPrompt(task.prompt)) return false
+  if (promptVersionOf(task.prompt) >= TASK_PROMPT_VERSION) return false
+  const next = buildSchedulePrompt(task.bundle ?? undefined)
+  const answer: unknown = await service.edit({
+    id: task.id,
+    action: 'update',
+    patch: { prompt: next },
+    expectedUpdatedAt: task.updatedAt,
+  })
+  return isRecord(answer) && answer.code !== 'schedule_conflict'
+}
+
 /** Reduce a live catalog to the tasks this plugin owns and the panel can show. */
 export function scheduledTaskViews(entries: unknown[]): ScheduledTaskView[] {
   const views: ScheduledTaskView[] = []
@@ -214,18 +268,30 @@ export async function listUpkeepTasks(service: ScheduleServiceLike): Promise<Arr
   title: string
   status: string | null
   prompt: string | null
+  bundle: string | null
+  updatedAt: string | null
 }>> {
   const entries = await service.catalog()
-  const tasks: Array<{ id: string | null; title: string; status: string | null; prompt: string | null }> = []
+  const tasks: Array<{
+    id: string | null
+    title: string
+    status: string | null
+    prompt: string | null
+    bundle: string | null
+    updatedAt: string | null
+  }> = []
   for (const entry of entries) {
     if (!isRecord(entry)) continue
     const title = typeof entry.title === 'string' ? entry.title : ''
     if (!title.startsWith('Upkeep')) continue
+    const scope = parseUpkeepTitle(title)
     tasks.push({
       id: typeof entry.id === 'string' ? entry.id : null,
       title,
       status: typeof entry.status === 'string' ? entry.status : null,
       prompt: typeof entry.prompt === 'string' ? entry.prompt : null,
+      bundle: scope !== null && scope.kind === 'bundle' ? scope.bundle : null,
+      updatedAt: typeof entry.updatedAt === 'string' ? entry.updatedAt : null,
     })
   }
   return tasks

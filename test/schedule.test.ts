@@ -1,7 +1,11 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import {
+  LAUNCHER_HEAD,
+  TASK_PROMPT_VERSION,
   TASK_TITLE,
+  isLauncherPrompt,
+  promptVersionOf,
   isKnownTimeZone,
   normalizeTimeOfDay,
   parseUpkeepTitle,
@@ -102,4 +106,19 @@ test('time zones are checked against the runtime', () => {
   assert.equal(isKnownTimeZone('UTC'), true)
   assert.equal(isKnownTimeZone('Mars/Olympus'), false)
   assert.equal(isKnownTimeZone('  '), false)
+})
+
+test('the stored prompt is a launcher that delegates the policy', () => {
+  const prompt = buildSchedulePrompt()
+  assert.ok(prompt.startsWith(LAUNCHER_HEAD))
+  assert.match(prompt, /follow the `brief` block/)
+  assert.match(prompt, new RegExp('<!-- upkeep-task:v' + TASK_PROMPT_VERSION + ' -->'))
+  // Policy lives in the plugin, not in the frozen copy.
+  assert.doesNotMatch(prompt, /P0|P1|P2/)
+  assert.doesNotMatch(prompt, /migration-guide/)
+  assert.equal(promptVersionOf(prompt), TASK_PROMPT_VERSION)
+  assert.equal(promptVersionOf('no marker here'), 0)
+  assert.equal(isLauncherPrompt(prompt), true)
+  assert.equal(isLauncherPrompt('Do my own thing <!-- upkeep-task:v1 -->'), false)
+  assert.equal(isLauncherPrompt(LAUNCHER_HEAD + ' but no marker'), false)
 })
