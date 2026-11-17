@@ -11,7 +11,7 @@
  * the panel shows on hover.
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
@@ -175,6 +175,25 @@ function localPathFromSource(source: string | undefined, profileDir: string | un
   return profileDir === undefined ? resolve(target) : resolve(profileDir, target)
 }
 
+/**
+ * The local checkout a spec points at, but only when it really is a directory.
+ *
+ * `file:` also records local tarballs (`"file:../plugin-0.1.0.tgz"`), and DSH
+ * reports both forms as `source: file:/abs/path` without telling them apart
+ * (`dsh-plugin-manager`'s `dependencySpec`). A tarball is an install input, not a
+ * package root: treating it as one makes every read below it fail, so the scan
+ * would report "cannot read the patch" and zero files instead of the package.
+ */
+function localDirectory(source: string | undefined, profileDir: string | undefined): string | undefined {
+  const target = localPathFromSource(source, profileDir)
+  if (target === undefined) return undefined
+  try {
+    return statSync(target).isDirectory() ? target : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Read the owner of a checkout's `origin` remote. */
 function readGitRemoteOwner(checkout: string): string | undefined {
   const text = readText(join(checkout, '.git', 'config'))
@@ -232,6 +251,8 @@ function factsFromManifest(name: string, manifest: unknown): PackageFacts {
  * @param source - the `source` spec `listBundles()` reports, when any.
  * @param profileDir - the current profile directory.
  * @param installAnchor - the running DSH manifest path, used as an extra resolution anchor.
+ * @returns the local checkout when the spec points at a directory, otherwise the
+ *   resolved installed copy; `undefined` when neither can be read.
  */
 export function readInstalledPackageDir(
   name: string,
@@ -239,8 +260,8 @@ export function readInstalledPackageDir(
   profileDir: string | undefined,
   installAnchor: string | undefined,
 ): string | undefined {
-  const localPath = localPathFromSource(source, profileDir)
-  if (localPath !== undefined && existsSync(localPath)) return localPath
+  const localPath = localDirectory(source, profileDir)
+  if (localPath !== undefined) return localPath
   const candidates: string[] = []
   if (profileDir !== undefined) candidates.push(profileDir)
   if (installAnchor !== undefined) candidates.push(dirname(installAnchor))
@@ -269,7 +290,7 @@ export function readInstalledManifest(
   profileDir: string | undefined,
   installAnchor: string | undefined,
 ): Record<string, unknown> | undefined {
-  const localPath = localPathFromSource(source, profileDir)
+  const localPath = localDirectory(source, profileDir)
   const candidates: string[] = []
   if (localPath !== undefined) candidates.push(localPath)
   if (profileDir !== undefined) candidates.push(profileDir)
@@ -311,7 +332,7 @@ export function readPackageFacts(
   profileDir: string | undefined,
   installAnchor: string | undefined,
 ): PackageFacts {
-  const localPath = localPathFromSource(source, profileDir)
+  const localPath = localDirectory(source, profileDir)
   const candidates: string[] = []
   if (localPath !== undefined) candidates.push(localPath)
   if (profileDir !== undefined) candidates.push(profileDir)
@@ -322,7 +343,7 @@ export function readPackageFacts(
       const requireFrom = createRequire(join(anchor, 'package.json'))
       const manifestPath = requireFrom.resolve(`${name}/package.json`)
       const facts = factsFromManifest(name, JSON.parse(readFileSync(manifestPath, 'utf8')) as unknown)
-      if (localPath !== undefined && existsSync(localPath)) {
+      if (localPath !== undefined) {
         facts.localPath = localPath
         facts.remoteOwner = readGitRemoteOwner(localPath)
       }
@@ -333,7 +354,7 @@ export function readPackageFacts(
   }
 
   const facts: PackageFacts = { name }
-  if (localPath !== undefined && existsSync(localPath)) {
+  if (localPath !== undefined) {
     facts.localPath = localPath
     facts.remoteOwner = readGitRemoteOwner(localPath)
     const manifest = readText(join(localPath, 'package.json'))

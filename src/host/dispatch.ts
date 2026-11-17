@@ -724,7 +724,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     const source = listing.base.source ?? undefined
     const packageDir = readInstalledPackageDir(listing.base.name, source, profile?.dir, profile?.installAnchor)
     if (packageDir === undefined) {
-      return { matches: [], warnings: [`The package directory of ${listing.base.name} could not be resolved.`] }
+      return { matches: [], warnings: [warning('bundleSourceUnreadable', listing.base.name)] }
     }
     const manifest = readInstalledManifest(listing.base.name, source, profile?.dir, profile?.installAnchor)
     const inventory = scanSurfaces(packageDir, manifest)

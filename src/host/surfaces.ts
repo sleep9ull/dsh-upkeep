@@ -10,6 +10,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
+import { warning } from './messages.js'
 import { isRecord } from './types.js'
 
 /** One matched surface token. */
@@ -148,6 +149,8 @@ export function scanSurfaces(packageDir: string, manifest: Record<string, unknow
   const warnings: string[] = []
 
   const packageName = manifest !== undefined && typeof manifest.name === 'string' ? manifest.name : ''
+  /** How a warning names this bundle: its package name, or the directory when there is none. */
+  const label = packageName === '' ? packageDir : packageName
   if (manifest !== undefined) {
     // The manifest itself names packages and declares bundle/client composition.
     const manifestText = JSON.stringify(manifest)
@@ -175,7 +178,7 @@ export function scanSurfaces(packageDir: string, manifest: Record<string, unknow
         for (const name of match[1].split(',')) add(services, name.replace(/['"\s]/g, ''))
       }
     } else {
-      warnings.push(`The bundle patch ${bundlePatch} could not be read.`)
+      warnings.push(warning('bundlePatchUnreadable', `${label} (${bundlePatch})`))
     }
   }
 
@@ -192,6 +195,10 @@ export function scanSurfaces(packageDir: string, manifest: Record<string, unknow
     scanConfigKeys(text, configKeys)
     scanRowIds(text, rowIds)
   }
+
+  // A directory that yields no readable file is a scan failure, not a clean
+  // plugin: an empty inventory compares equal to "no breaking change found".
+  if (filesScanned === 0) warnings.push(warning('surfaceScanEmpty', label))
 
   return {
     packageName,

@@ -1,9 +1,10 @@
 import { strict as assert } from 'node:assert'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { classifyOwnership, resolveOwnerIdentity } from '../dist/host/owner.js'
+import { classifyOwnership, readInstalledManifest, readInstalledPackageDir, readPackageFacts, resolveOwnerIdentity } from '../dist/host/owner.js'
+import { scanSurfaces } from '../dist/host/surfaces.js'
 
 const identity = { handles: ['sleep9ull'], emails: ['sleep9ull@gmail.com'], sources: ['config'] }
 
@@ -91,4 +92,62 @@ test('any machine identity is detected and classified, not one hardcoded account
 
   // The reverse holds on the first machine: it does not claim their plugin.
   assert.equal(classifyOwnership({ repositoryOwner: 'octocat' }, identity, 'plugin-x').status, 'other')
+})
+
+/** An installed profile with one bundle, its manifest and its patch on disk. */
+function profileWithPlugin(): { profileDir: string; packageDir: string } {
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-owner-profile-'))
+  const packageDir = join(profileDir, 'node_modules', '@isdou', 'dsh-wardrobe')
+  mkdirSync(packageDir, { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
+    name: '@isdou/dsh-wardrobe',
+    version: '0.1.0',
+    dsh: { bundle: { patch: './cordis.patch.yml' } },
+  }))
+  writeFileSync(join(packageDir, 'cordis.patch.yml'), [
+    '- insert:',
+    '    - id: wardrobe-row',
+    "      name: '@isdou/dsh-wardrobe'",
+    '',
+  ].join('\n'))
+  return { profileDir, packageDir }
+}
+
+test('a file: tarball is an install input, not the package root', () => {
+  const { profileDir, packageDir } = profileWithPlugin()
+  const tarball = join(profileDir, 'dsh-wardrobe-0.1.0.tgz')
+  writeFileSync(tarball, 'a local tarball is a file, not a directory')
+
+  // DSH reports a local install as `file:/abs/path` without saying whether that
+  // path is a directory or the tarball it was installed from.
+  const source = `file:${tarball}`
+  const resolved = readInstalledPackageDir('@isdou/dsh-wardrobe', source, profileDir, undefined)
+  assert.ok(resolved !== undefined)
+  assert.equal(realpathSync(resolved), realpathSync(packageDir), 'the tarball must not become the package directory')
+
+  const manifest = readInstalledManifest('@isdou/dsh-wardrobe', source, profileDir, undefined)
+  assert.equal(manifest?.version, '0.1.0', 'the manifest still comes from the installed copy')
+
+  // A tarball is not a checkout, so it must not become local-checkout evidence.
+  assert.equal(readPackageFacts('@isdou/dsh-wardrobe', source, profileDir, undefined).localPath, undefined)
+
+  // The regression: the scan reads the real install, patch included, unlabeled.
+  const inventory = scanSurfaces(resolved as string, manifest)
+  assert.deepEqual(inventory.warnings, [])
+  assert.ok(inventory.rowIds.includes('wardrobe-row'))
+})
+
+test('a link: directory stays the package root and checkout evidence', () => {
+  const checkout = mkdtempSync(join(tmpdir(), 'upkeep-owner-checkout-'))
+  writeFileSync(join(checkout, 'package.json'), JSON.stringify({
+    name: '@isdou/dsh-wardrobe',
+    version: '0.1.0',
+    dsh: { bundle: { patch: './cordis.patch.yml' } },
+  }))
+  writeFileSync(join(checkout, 'cordis.patch.yml'), '- insert:\n    - id: wardrobe-row\n')
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-owner-profile-'))
+
+  const source = `link:${checkout}`
+  assert.equal(readInstalledPackageDir('@isdou/dsh-wardrobe', source, profileDir, undefined), checkout)
+  assert.equal(readPackageFacts('@isdou/dsh-wardrobe', source, profileDir, undefined).localPath, checkout)
 })

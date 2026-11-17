@@ -274,6 +274,83 @@ test('check matches migration guides and report.get returns the hits', async () 
   assert.match(report.matched[0]?.change ?? '', /ctx\.tools/)
 })
 
+test('a tarball install is scanned from the installed copy, not from the .tgz', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-tarball-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-tarball-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-tarball-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@isdou', 'dsh-wardrobe')
+  mkdirSync(join(packageDir, 'src'), { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
+    name: '@isdou/dsh-wardrobe',
+    version: '0.1.0',
+    engines: { dsh: '^0.2.2-rc.1' },
+    dsh: { bundle: { patch: './cordis.patch.yml' } },
+  }))
+  writeFileSync(join(packageDir, 'cordis.patch.yml'), [
+    '- insert:',
+    '    - id: wardrobe-row',
+    "      name: '@isdou/dsh-wardrobe'",
+    '      inject: [workspaceRegistry]',
+    '',
+  ].join('\n'))
+  writeFileSync(join(packageDir, 'src', 'index.js'), "ctx.slots.inject('settings.plugins.tab', () => undefined)\n")
+  // DSH reports a local tarball install as file:/abs/path, with no hint that the
+  // path is a file rather than the package directory.
+  const tarball = join(profileDir, 'dsh-wardrobe-0.1.0.tgz')
+  writeFileSync(tarball, 'install input')
+
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@isdou/dsh-wardrobe', version: '0.1.0', enabled: true, rows: [], source: `file:${tarball}` }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+  }), normalizeConfig({ ownerHandles: 'isdou', autoDetectOwner: false, targetVersion: '0.2.2-rc.3' }), {
+    home, startupCheck: false, now: () => 3_000,
+  })
+
+  const report = await hub.call('report.get', { bundle: '@isdou/dsh-wardrobe' }, { caller: 'tool' }) as {
+    warnings: string[]
+    inventory: { filesScanned: number; rowIds: string[]; slots: string[] } | null
+  }
+  assert.deepEqual(report.warnings, [])
+  assert.ok((report.inventory?.filesScanned ?? 0) >= 3, 'the real package files are scanned')
+  assert.ok(report.inventory?.rowIds.includes('wardrobe-row'), 'the bundle patch is read')
+  assert.ok(report.inventory?.slots.includes('settings.plugins.tab'))
+})
+
+test('a missing bundle patch names its plugin and reads in the requested language', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-nopatch-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-nopatch-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-nopatch-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@isdou', 'dsh-journal')
+  mkdirSync(packageDir, { recursive: true })
+  // The manifest promises a patch the installed copy does not ship.
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
+    name: '@isdou/dsh-journal',
+    version: '0.1.4',
+    engines: { dsh: '^0.2.2-rc.1' },
+    dsh: { bundle: { patch: './cordis.patch.yml' } },
+  }))
+
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@isdou/dsh-journal', version: '0.1.4', enabled: true, rows: [] }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+  }), normalizeConfig({ ownerHandles: 'isdou', autoDetectOwner: false, targetVersion: '0.2.2-rc.3' }), {
+    home, startupCheck: false, now: () => 4_000,
+  })
+
+  const report = await hub.call('report.get', { bundle: '@isdou/dsh-journal', locale: 'zh-CN' }, { caller: 'client' }) as {
+    warnings: string[]
+  }
+  const warning = report.warnings.find(text => text.includes('bundle patch')) ?? ''
+  assert.match(warning, /读不到 @isdou\/dsh-journal \(\.\/cordis\.patch\.yml\) 声明的 bundle patch/)
+  assert.ok(!report.warnings.some(text => /could not be read/.test(text)), 'no untranslated copy is left behind')
+})
+
 test('upgrade.prepare gated by confirm, registers a workspace, and verify records the run', async () => {
   const home = mkdtempSync(join(tmpdir(), 'upkeep-m3-'))
   const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-m3-profile-'))

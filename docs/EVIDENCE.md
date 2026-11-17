@@ -108,6 +108,8 @@
 | `engines.dsh` 存在时独占判定；不声明则每个 `@deepseek-ai/dsh-*` peer 都是硬锁 | `R/dsh-app-boot/src/plugin-compatibility.ts:55-74` |
 | Host 插件导出形式：`export function apply(ctx, config)` + 可选 `inject` / `Config`；资源用 `ctx.effect`/`ctx.on` 注册并返回清理 | `dsh-doc/references/host-plugin.md:58-65` |
 | Bundle manifest：`dsh.bundle.patch` 指向 cordis.patch.yml；`dsh.client` 声明客户端半 | `dsh-doc/references/host-plugin.md:5-27`；`references/ui-plugin.md:3` |
+| `listBundles().source` 只对 installation-owned bundle 返回；`file:`/`link:` 被归一化为 `file:/abs` / `link:/abs`，**不区分目录与本地 tarball**（`"file:../p-0.1.0.tgz"` 也是 `file:/abs/p-0.1.0.tgz`） | `R/dsh-plugin-manager/src/index.ts:547-548`；`R/dsh-plugin-manager/src/install-spec.ts:147-152` |
+| 包根本身由 DSH 从 profile 解析（`bundleManifest(name, profile.dir, installAnchor)`），与 `source` 无关；`source` 只是安装规格的回显 | `R/dsh-plugin-manager/src/index.ts:554` |
 | 插件可 peer 声明 DSH 包以共享安装版实例（linked checkout 场景） | `D/user/develop/basic/publish.md:105-107` |
 | 装包后确认生效看 `application`/`warnings`，不看日志或进程 | `dsh-doc/references/plugin-development.md:20` |
 

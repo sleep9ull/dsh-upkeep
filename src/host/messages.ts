@@ -28,6 +28,9 @@ export type MessageKey =
   | 'repoDirty'
   | 'guidesFallback'
   | 'surfaceScanLimited'
+  | 'bundlePatchUnreadable'
+  | 'bundleSourceUnreadable'
+  | 'surfaceScanEmpty'
 
 type Entry = { en: string; zh: string }
 
@@ -87,6 +90,18 @@ const MESSAGES: Record<MessageKey, Entry> = {
   surfaceScanLimited: {
     en: 'The surface scan stopped at its limit ({detail}); the report may miss a usage.',
     zh: '表面扫描在限额处停止（{detail}），报告可能漏掉某处用法。',
+  },
+  bundlePatchUnreadable: {
+    en: 'The bundle patch of {detail} could not be read; the rows and config it declares are unknown to this scan.',
+    zh: '读不到 {detail} 声明的 bundle patch，本次扫描无法得知它声明的 row 与配置。',
+  },
+  bundleSourceUnreadable: {
+    en: 'The source directory of {detail} could not be resolved; its surface scan is unknown, not clean.',
+    zh: '无法解析 {detail} 的源码目录；表面扫描是未知，不代表没有兼容问题。',
+  },
+  surfaceScanEmpty: {
+    en: 'No readable source file was found for {detail}; its surface scan is unknown, not clean.',
+    zh: '没有读到 {detail} 的任何源码文件；表面扫描是未知，不代表没有兼容问题。',
   },
 }
 
