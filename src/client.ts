@@ -596,6 +596,8 @@ interface Window {
 [data-upkeep] .upkeep-modal-check input:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
 [data-upkeep] .upkeep-modal-hint { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 16px; }
 [data-upkeep] .upkeep-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+/* A dialog answers the same way twice: both actions share one width. */
+[data-upkeep] .upkeep-modal-actions .upkeep-btn { min-width: 72px; justify-content: center; }
 [data-upkeep] .upkeep-time { box-sizing: border-box; height: 28px; padding: 0 8px; border: .5px solid var(--dsw-alias-border-l3, var(--dsw-alias-border-l2)); border-radius: var(--dsw-radius-sm, 6px); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; font-size: 12px; line-height: 18px; }
 [data-upkeep] .upkeep-time:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
 `
