@@ -126,6 +126,8 @@ npm run verify:full  # everything above + package metadata + profile check + rea
 
 Upkeep reads your installed plugins, and on request prepares an upgrade of one repository you own. It talks to the npm registry and GitHub for metadata, writes `$DSH_HOME/upkeep/state.json`, creates `<repo>/.worktrees/upkeep/<run>` for isolated upgrades, and runs `git`/`gh` plus your configured verification commands. It never edits your source and never commits or pushes without your confirmation. The full list, including how to uninstall cleanly, is in [docs/SECURITY.md](docs/SECURITY.md); releasing is documented in [docs/RELEASE.md](docs/RELEASE.md).
 
+Host warnings are translated too: the panel sends its language with every request, so a Chinese panel reads Chinese warnings instead of English ones.
+
 ## Notes and limitations
 
 - **Verified on DSH `0.2.2-rc.3`**, and the declared range says exactly that: `>=0.2.2-rc.3 <0.3.0`. Earlier prereleases are not claimed — they were never tested, and the internal surfaces this plugin reads do change between them.

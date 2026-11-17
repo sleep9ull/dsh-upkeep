@@ -126,6 +126,8 @@ npm run verify:full  # 以上全部 + 包元数据 + profile 检查 + 真实 reg
 
 Upkeep 读取已安装的插件，并在你要求时为你自己的某个仓库准备升级。它会访问 npm registry 与 GitHub 取元数据，写入 `$DSH_HOME/upkeep/state.json`，为隔离升级创建 `<repo>/.worktrees/upkeep/<run>`，并运行 `git`/`gh` 与你配置的验证命令。它不会改你的源码，也不会在你确认前提交或推送。完整清单与干净卸载步骤见 [docs/SECURITY.md](docs/SECURITY.md)；发布流程见 [docs/RELEASE.md](docs/RELEASE.md)。
 
+Host 侧的警告也会跟随语言：面板每次请求都带上当前语言，所以中文界面看到的是中文警告，而不是英文。
+
 ## 注意事项
 
 - **只在 DSH `0.2.2-rc.3` 上验证过**，声明范围也如实写成 `>=0.2.2-rc.3 <0.3.0`。更早的 prerelease 不在声明内——它们没被测过，而本插件读取的内部接口在 prerelease 之间确实会变。

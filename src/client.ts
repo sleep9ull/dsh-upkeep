@@ -602,8 +602,17 @@ interface Window {
        * Transport: exact-Fetch RPC over the shared /api channel.
        * ------------------------------------------------------------------ */
 
+      /** Last locale the shell reported; the Host needs it for its warning copy. */
+      let activeLocale = 'en'
+      const currentLocale = (): string => activeLocale
+
       async function callHost(ctx: ClientContext, action: string, input?: unknown, signal?: AbortSignal): Promise<{ ok: true; value: JsonData | null } | { ok: false; error: RpcFailure }> {
-        const payload = input === undefined ? { action } : { action, input }
+        activeLocale = localeOf(ctx)
+        // Tell the Host which language to answer in; only it knows the warning keys.
+        const withLocale = input !== null && typeof input === 'object' && !Array.isArray(input)
+          ? { ...(input as Record<string, unknown>), locale: currentLocale() }
+          : { locale: currentLocale() }
+        const payload = { action, input: withLocale }
         try {
           const result = await ctx.connection.rpc.call('/api', 'upkeep/' + action, payload, signal)
           if (!result || result.ok !== true) {
@@ -1438,6 +1447,7 @@ interface Window {
 
       function apply(ctx: ClientContext): void {
         const t = ctx.locale.bind(NS)
+        syncLocale(ctx)
         const store = createStore(ctx, t)
 
         // The sidebar glyph lives outside the panel, so the pendingCare mirrors the same
@@ -1494,6 +1504,10 @@ interface Window {
           locale: NS,
           inject: () => ({ store, t, locale: localeOf(ctx), openPanel }),
         }, TabBody), 'upkeep: settings tab')
+      }
+
+      function syncLocale(ctx: ClientContext): void {
+        activeLocale = localeOf(ctx)
       }
 
       function localeOf(ctx: ClientContext): string {

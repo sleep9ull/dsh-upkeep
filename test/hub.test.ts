@@ -1041,3 +1041,27 @@ test('schedule.remove deletes only the task that belongs to the named plugin', a
     (error: unknown) => (error as { code?: string }).code === 'TASK_NOT_FOUND',
   )
 })
+
+test('a request with locale zh reads its warnings in Chinese', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-locale-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-locale-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-locale-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(packageDir, { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: '@sleep9ull/plugin', version: '1.0.0', engines: { dsh: '^0.2.2-rc.3' } }))
+
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [], source: 'link:' + packageDir }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+  }), normalizeConfig({ autoDetectOwner: false }), { home, startupCheck: false, now: () => 60_000 })
+
+  const english = await hub.call('status', {}, { caller: 'client' }) as { warnings: string[] }
+  assert.ok(english.warnings.some(text => /No owner identity/.test(text)), 'the default is English')
+
+  const chinese = await hub.call('status', { locale: 'zh-CN' }, { caller: 'client' }) as { warnings: string[] }
+  assert.ok(chinese.warnings.some(text => /没有检测到你的身份/.test(text)), 'a zh request reads Chinese')
+  assert.ok(!chinese.warnings.some(text => /No owner identity/.test(text)))
+})

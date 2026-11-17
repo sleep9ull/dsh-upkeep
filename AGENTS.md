@@ -41,6 +41,7 @@
 | `src/host/exec.ts` | Host 半唯一子进程 seam：argv 数组、超时、输出上限、可注入 runner（worktree 与验证共用）。 |
 | `src/host/upgrade.ts` | 升级闭环：prompt 组装、验证命令推导、git 仓库探测、worktree 准备、逐命令验证。 |
 | `src/host/deliver.ts` | 交付：preview（分支/dirty/ahead/diff/gh 状态）、commit、push、`gh pr create`、`gh pr merge`、worktree 清理；全部有界、argv 数组、确认门。 |
+| `src/host/messages.ts` | Host 侧文案：警告以稳定 key 产出，在 Hub 边界按请求携带的 `locale` 翻译（en/zh，其它回退 en）；未知文案原样透传。 |
 | `src/host/schedule.ts` | 周期检查：结构化读取 `ctx.schedule`，映射 `every` 定时与 `new_once` 目标；间隔钳制、任务标题前缀过滤。 |
 | `scripts/full-test.mjs` | 可重复全量测试：单测/契约 → 包元数据 → CLI `--dump-config` 组合配置 → 真实 registry 目标版本；不支持的环境记为 skipped。 |
 | `src/client.ts` | Web 半：**一段编译脚本**（`module: none`，无 import/export），注册一级侧栏面板（`main` key + `sidebar.panellist` 图标，id `dsh-upkeep`）与 Plugins 设置页分页（同一 id，二级入口）；React 由 loader 的 `require` 提供。 |

@@ -80,6 +80,7 @@ import {
   worktreeParent,
   type UpgradeRunRecord,
 } from './upgrade.js'
+import { hostLocale, localizeResult, warning } from './messages.js'
 import { compareVersions, parseVersion } from './versions.js'
 
 /** The plugin's own version, read once from the package manifest beside `dist/`. */
@@ -561,11 +562,11 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     try {
       for (const task of await listUpkeepTasks(scheduler)) {
         if (await reconcileTaskPrompt(scheduler, task)) {
-          warnings.push(`Refreshed the launcher of ${task.title} to this version.`)
+          warnings.push(warning('launcherRefreshed', task.title))
         }
       }
     } catch {
-      warnings.push('The stored scheduled tasks could not be inspected; they keep their current launcher.')
+      warnings.push(warning('tasksUnreadable'))
     }
     return warnings
   }
@@ -729,9 +730,9 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
   async function buildSnapshot(options: { targetOverride?: TargetVersion; extraWarnings?: string[] } = {}): Promise<StatusSnapshot> {
     const warnings: string[] = [...(options.extraWarnings ?? [])]
     const runtime = readRuntimeVersion(profile)
-    if (runtime.version === null) warnings.push('The running DSH version could not be read from the profile installation anchor.')
+    if (runtime.version === null) warnings.push(warning('runtimeUnreadable'))
     if (ownerIdentity.handles.length === 0 && ownerIdentity.emails.length === 0) {
-      warnings.push('No owner identity was detected; ownership is reported as unknown. Set ownerHandles in the plugin configuration.')
+      warnings.push(warning('noOwnerIdentity'))
     }
 
     let listings: BundleListing[] = []
@@ -740,10 +741,10 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
         const listed = await manager.listBundles()
         listings = listed.map(readBundleListing).filter((entry): entry is BundleListing => entry !== undefined)
       } catch (error) {
-        warnings.push(`Installed bundles could not be listed: ${errorMessage(error) ?? 'unknown error'}`)
+        warnings.push(warning('bundlesUnlistable', errorMessage(error) ?? 'unknown error'))
       }
     } else {
-      warnings.push('The plugin manager service is not mounted; installed bundles are unknown.')
+      warnings.push(warning('pluginManagerMissing'))
     }
 
     const live = await readPluginEntries(ctx)
@@ -752,7 +753,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     const state = readState(home)
     const target = options.targetOverride ?? targetFromState(config, state, now())
     if (target.source === 'cache' && target.stale) {
-      warnings.push('The target DSH version comes from a stale cached answer; run a check to refresh it.')
+      warnings.push(warning('targetStale'))
     }
     const exemptions = readVersionExemptions(profile?.dir)
 
@@ -847,7 +848,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
         cachedFeed = { fetchedAt: at, targetVersion: fetched.target.version, channel: fetched.target.channel }
       } else {
         const detail = fetched.attempts.map(attempt => `${attempt.registry}: ${attempt.error}`).join('; ')
-        warnings.push(`The DSH version feed is unavailable (${detail}); using the cached target.`)
+        warnings.push(warning('feedUnavailable', detail))
       }
     }
 
@@ -970,7 +971,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
         const parent = worktreeParent(repo.repoRoot, config.worktreeRoot)
         if (input.worktree === true) {
           const pruned = await pruneWorktrees(exec, repo.repoRoot, parent, config.worktreesToKeep)
-          for (const path of pruned) warnings.push(`Removed an older worktree to stay within worktreesToKeep: ${path}`)
+          for (const path of pruned) warnings.push(warning('worktreePruned', path))
         }
         const stamp = now().toString(36)
         const prepared = await prepareWorkspace({
@@ -1044,12 +1045,12 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
               }, cleanupSeconds * 1_000)
             }
           } catch (error) {
-            warnings.push(`The upgrade session could not be started automatically (${error instanceof Error ? error.message : String(error)}); open the workspace and send the prompt yourself.`)
+            warnings.push(warning('autoStartFailed', error instanceof Error ? error.message : String(error)))
           }
         } else {
-          warnings.push('The schedule service is not mounted, so the upgrade session was not started automatically; open the workspace and send the prompt yourself.')
+          warnings.push(warning('scheduleMissing'))
         }
-        if (repo.dirty > 0) warnings.push(`The repository has ${repo.dirty} uncommitted change(s); the worktree starts from HEAD.`)
+        if (repo.dirty > 0) warnings.push(warning('repoDirty', String(repo.dirty)))
         return {
           run,
           from: status.dsh.runtimeVersion,
@@ -1279,7 +1280,8 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
       const spec = actions[action]
       if (!spec) throw new HubError('UNKNOWN_ACTION', `Unknown upkeep action: ${action}`)
       try {
-        return await spec.run(input, call)
+        // The Host builds warning keys; the response speaks the caller's language.
+        return localizeResult(await spec.run(input, call), hostLocale(input.locale))
       } catch (error) {
         if (error instanceof HubError) throw error
         if (error instanceof CompatibilityError) throw new HubError(error.code, error.message)
