@@ -345,6 +345,7 @@ interface Window {
         stopTitle: 'Stop this scheduled check',
         stopHint: 'The task is deleted; you can schedule a new check at any time.',
         stopSchedule: 'Stop',
+        stop: 'Stop',
         stopScheduleHint: 'Delete the scheduled check for this plugin.',
         scheduleStopped: 'Stopped the scheduled check for {bundle}.',
         scheduleHint: 'The task runs every day at this local time and reports which plugins need care.',
@@ -445,6 +446,7 @@ interface Window {
         stopTitle: '停止这条定时检查',
         stopHint: '该任务会被删除；随时可以重新创建。',
         stopSchedule: '停止',
+        stop: '停止',
         stopScheduleHint: '删除该插件的定时检查。',
         scheduleStopped: '已停止 {bundle} 的定时检查。',
         scheduleHint: '任务每天在这个本地时间运行，并汇报哪些插件需要维护。',
@@ -542,7 +544,7 @@ interface Window {
 [data-upkeep] .upkeep-empty { padding: 12px 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 [data-upkeep] .upkeep-muted { color: var(--dsw-alias-label-secondary); font-size: 11px; }
 [data-upkeep] .upkeep-stop { height: 20px; padding: 0 6px; font-size: 11px; }
-[data-upkeep] .upkeep-cadence { color: var(--dsw-alias-label-secondary); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+[data-upkeep] .upkeep-cadence { display: inline-flex; align-items: center; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 [data-upkeep] .upkeep-footer { display: flex; flex-direction: column; gap: 3px; padding-top: 10px; border-top: .5px solid var(--dsw-alias-border-l1); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 16px; }
 
 /* Groups and the one ledger table inside each. */
@@ -1227,9 +1229,9 @@ interface Window {
                     className: 'upkeep-btn',
                     type: 'button',
                     'data-variant': 'primary',
-                    disabled: busy || scheduleTime === '',
-                    onClick: saveSchedule,
-                  }, t('create')))))
+                    disabled: busy || (scheduleMode !== 'stop' && scheduleTime === ''),
+                    onClick: scheduleMode === 'stop' ? saveStop : saveSchedule,
+                  }, scheduleMode === 'stop' ? t('stop') : t('create')))))
 
         /** Open the preparation dialog for one plugin. */
         const requestUpgrade = (bundle: BundleSummary): void => {

@@ -47,6 +47,12 @@ const DICTIONARY: Record<string, string> = {
   scheduleTitle: 'Schedule a compatibility check',
   scheduleTime: 'Time of day',
   scheduleHint: 'The task runs every day at this local time.',
+  stopTitle: 'Stop this scheduled check',
+  stopHint: 'The task is deleted.',
+  stopSchedule: 'Stop',
+  stop: 'Stop',
+  scheduleAt: '{time} {cadence}',
+  everyday: 'everyday',
   upgradeTitle: 'Prepare a targeted upgrade',
   worktreeOption: 'Edit in a separate git worktree',
   upgradeHint: 'Upkeep matches the guides and opens a session.',
@@ -263,4 +269,40 @@ test('Cancel closes a dialog without calling the Host', () => {
   assert.deepEqual(upgrades, [], 'Cancel makes no call')
   TestUtils.act(() => { root.unmount() })
   container.remove()
+})
+
+test('pressing Stop asks once, then deletes that plugin\'s task', () => {
+  const base = fakeStore(false)
+  const typed = base.store as { get: () => { data: { scheduled: { available: boolean; tasks: unknown[] } } } }
+  const snapshot = typed.get()
+  // Next run at 08:00 local, the way a daily task is created.
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  tomorrow.setHours(8, 0, 0, 0)
+  snapshot.data.scheduled.tasks = [{
+    bundle: '@sleep9ull/plugin',
+    title: 'Upkeep: @sleep9ull/plugin',
+    everySeconds: 86_400,
+    nextAt: tomorrow.toISOString(),
+  }]
+  const removed: string[] = []
+  const store = { ...(base.store as object), get: () => snapshot, removeSchedule: async (bundle: string) => { removed.push(bundle) } }
+
+  const { container, root } = mount(store)
+  const document = dom.window.document
+  const stop = container.querySelector('.upkeep-col-scheduled .upkeep-stop')
+  assert.ok(stop !== null, 'a scheduled row offers Stop next to its cadence')
+  assert.equal(stop.textContent, 'Stop')
+  assert.match(container.textContent ?? '', /8:00am/, 'the cadence is shown beside it')
+
+  click(stop)
+  const modal = container.querySelector('.upkeep-modal')
+  assert.ok(modal !== null, 'Stop opens the dialog')
+  assert.match(modal.textContent ?? '', /Stop this scheduled check/)
+  const confirm = Array.from(modal.querySelectorAll('button')).find(button => button.textContent === 'Stop')
+  assert.ok(confirm !== undefined, 'the dialog confirms with Stop, not Create')
+
+  click(confirm)
+  assert.deepEqual(removed, ['@sleep9ull/plugin'], 'the panel asks the Host to delete that task')
+  root.unmount()
 })
