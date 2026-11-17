@@ -99,6 +99,8 @@ The Loader row accepts the following configuration (defaults shown):
 | `concurrency` | `2` | How many plugins one check inspects at a time (1–8). |
 | `verifyCommands` | `[]` | Commands used by Verify; empty derives them from package scripts. |
 | `runsToKeep` | `10` | How many upgrade runs to retain. |
+| `ignoreWorktrees` | `true` | Add `.worktrees/` to this clone's `.git/info/exclude`; turn it off to leave the clone untouched (the panel then warns). |
+| `worktreesToKeep` | `5` | How many upgrade worktrees to keep per repository; older ones and their `upkeep/*` branches are removed when a new one is prepared. `0` keeps all. |
 | `worktreeRoot` | `""` | Where worktrees are created; empty means `<repo>/.worktrees/upkeep/<run>` inside the checkout, whose path is added to the clone's `.git/info/exclude`. |
 | `defaultBaseBranch` | `main` | Branch previews compare against and PRs target. |
 | `allowMerge` | `false` | Whether Merge is offered at all; every merge still asks. |
@@ -123,7 +125,9 @@ npm run verify:full  # everything above + package metadata + profile check + rea
 - **Verified on DSH `0.2.2-rc.3`**, declared range `>=0.2.2-rc.1 <0.3.0`.
 - **The PR path needs the host `gh` CLI signed in**; merging needs `allowMerge` and a fresh confirmation. Nothing is pushed unattended.
 - **A linked checkout serves `dist/`.** Build before installing or reloading; Host changes need a Harness restart, client changes only a page refresh.
-- **A worktree starts from HEAD.** Uncommitted changes are not copied; the panel warns when the repository is dirty.
+- **A worktree starts from HEAD.** Uncommitted changes are not copied; the panel warns when the repository is dirty. Merging a run retires its worktree and branch.
+- **`git clean -xdf` deletes the worktrees.** They live inside the checkout under `.worktrees/`, which is only *ignored*, not protected.
+- **Build tools should skip `.worktrees`.** Watchers that ignore `.gitignore` (some bundlers, `tsc --watch`) will otherwise scan the nested checkout; add it to their exclude list.
 - **Remote guide fetching needs network.** Without it, only the installed guides are used and the failure is reported, never hidden.
 - **Not published to npm yet.** Installation is from a local checkout as described above.
 - **Desktop owns its running profile.** While the app is open, the CLI cannot compose `--profile desktop`; the full-test script reports that step as skipped rather than passing silently.

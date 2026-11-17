@@ -5,7 +5,7 @@
  * Session, so approvals, interruption and the session log apply.
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, isAbsolute, join } from 'node:path'
 
 import type { GuideMatch } from './match.js'
@@ -135,6 +135,85 @@ export async function ensureWorktreeIgnored(exec: ExecRunner, repoRoot: string, 
   }
 }
 
+/** One worktree this plugin created. */
+export interface UpkeepWorktree {
+  path: string
+  branch: string | null
+}
+
+/** The directory that holds this plugin's worktrees for one repository. */
+export function worktreeParent(repoRoot: string, worktreeRoot: string): string {
+  return worktreeRoot.trim() === '' ? join(repoRoot, '.worktrees', 'upkeep') : worktreeRoot
+}
+
+/**
+ * List the worktrees under `parent`, newest first.
+ *
+ * Only paths inside `parent` are returned: a worktree the author created by hand
+ * must never be a cleanup candidate.
+ */
+export async function listUpkeepWorktrees(exec: ExecRunner, parent: string, repoRoot: string): Promise<UpkeepWorktree[]> {
+  const listed = await exec.run('git', ['worktree', 'list', '--porcelain'], { cwd: repoRoot, timeoutMs: 30_000 })
+  if (listed.exitCode !== 0) return []
+  const prefix = parent.endsWith('/') ? parent : parent + '/'
+  const found: UpkeepWorktree[] = []
+  for (const block of listed.stdout.split('\n\n')) {
+    let path = ''
+    let branch: string | null = null
+    for (const line of block.split('\n')) {
+      if (line.startsWith('worktree ')) path = line.slice('worktree '.length).trim()
+      if (line.startsWith('branch ')) {
+        const ref = line.slice('branch '.length).trim()
+        branch = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref
+      }
+    }
+    if (path === '' || !path.startsWith(prefix)) continue
+    found.push({ path, branch })
+  }
+  const age = (path: string): number => {
+    try {
+      return statSync(path).mtimeMs
+    } catch {
+      return 0
+    }
+  }
+  return found.sort((left, right) => age(right.path) - age(left.path))
+}
+
+/** Delete one worktree and, when it is ours, the branch it had checked out. */
+export async function removeWorktreeAndBranch(
+  exec: ExecRunner,
+  repoRoot: string,
+  worktree: UpkeepWorktree,
+): Promise<boolean> {
+  const removed = await exec.run('git', ['worktree', 'remove', '--force', worktree.path], { cwd: repoRoot, timeoutMs: 60_000 })
+  if (removed.exitCode !== 0) return false
+  if (worktree.branch !== null && worktree.branch.startsWith('upkeep/')) {
+    await exec.run('git', ['branch', '-D', worktree.branch], { cwd: repoRoot, timeoutMs: 30_000 })
+  }
+  return true
+}
+
+/**
+ * Keep only the newest `keep` worktrees under the parent; 0 keeps all.
+ * @returns the paths that were removed.
+ */
+export async function pruneWorktrees(
+  exec: ExecRunner,
+  repoRoot: string,
+  parent: string,
+  keep: number,
+): Promise<string[]> {
+  if (keep <= 0) return []
+  const all = await listUpkeepWorktrees(exec, parent, repoRoot)
+  const doomed = all.slice(keep)
+  const removed: string[] = []
+  for (const worktree of doomed) {
+    if (await removeWorktreeAndBranch(exec, repoRoot, worktree)) removed.push(worktree.path)
+  }
+  return removed
+}
+
 /** Whether a path is the root of a git work tree, and the dirty file count. */
 export async function inspectRepository(exec: ExecRunner, path: string): Promise<{ repoRoot: string; dirty: number } | undefined> {
   const root = await exec.run('git', ['rev-parse', '--show-toplevel'], { cwd: path, timeoutMs: 30_000 })
@@ -155,6 +234,8 @@ export async function prepareWorkspace(input: {
   worktreeRoot: string
   bundle: string
   stamp: string
+  /** Add the in-repo worktree directory to this clone's exclude file. */
+  ignoreWorktree?: boolean
 }): Promise<{ workspacePath: string; worktree: boolean; branch?: string; warnings: string[] }> {
   const warnings: string[] = []
   if (!input.worktree) return { workspacePath: input.repoRoot, worktree: false, warnings }
@@ -162,14 +243,17 @@ export async function prepareWorkspace(input: {
   const branch = `upkeep/${safe}-${input.stamp}`
   // Inside the checkout by default, under .worktrees/upkeep/<stamp>; a configured
   // root keeps the plugin's own folder name so several repos can share it.
-  const parent = input.worktreeRoot.trim() === ''
-    ? join(input.repoRoot, '.worktrees', 'upkeep')
-    : input.worktreeRoot
-  const workspacePath = input.worktreeRoot.trim() === ''
-    ? join(parent, input.stamp)
-    : join(parent, `${basename(input.repoRoot)}-${input.stamp}`)
-  if (input.worktreeRoot.trim() === '' && await ensureWorktreeIgnored(input.exec, input.repoRoot)) {
-    warnings.push('Added .worktrees/ to this clone’s .git/info/exclude so the main checkout stays clean.')
+  const inRepo = input.worktreeRoot.trim() === ''
+  const parent = worktreeParent(input.repoRoot, input.worktreeRoot)
+  const workspacePath = inRepo ? join(parent, input.stamp) : join(parent, `${basename(input.repoRoot)}-${input.stamp}`)
+  if (inRepo) {
+    if (input.ignoreWorktree === false) {
+      warnings.push('The worktree lives inside the checkout and is not ignored: .worktrees/ will show up as untracked here. Add it to .gitignore or enable ignoreWorktrees.')
+    } else if (await ensureWorktreeIgnored(input.exec, input.repoRoot)) {
+      warnings.push('Added .worktrees/ to this clone’s .git/info/exclude so the main checkout stays clean.')
+    } else {
+      warnings.push('The worktree lives inside the checkout and the ignore rule could not be added: .worktrees/ may show up as untracked here.')
+    }
   }
   const added = await input.exec.run('git', ['worktree', 'add', '-b', branch, workspacePath, 'HEAD'], {
     cwd: input.repoRoot,

@@ -99,6 +99,8 @@ Loader 行接受以下配置（括号内为默认值）：
 | `concurrency` | `2` | 一次检查并发处理多少插件（1–8）。 |
 | `verifyCommands` | `[]` | 「验证」执行的命令；留空从 package scripts 推导。 |
 | `runsToKeep` | `10` | 保留多少条升级运行记录。 |
+| `ignoreWorktrees` | `true` | 是否把 `.worktrees/` 写入本 clone 的 `.git/info/exclude`；关闭则完全不改你的仓库（面板会给出警告）。 |
+| `worktreesToKeep` | `5` | 每个仓库保留多少个升级 worktree；超出时在新建前删除最旧的及其 `upkeep/*` 分支。`0` 表示全部保留。 |
 | `worktreeRoot` | `""` | worktree 创建目录；留空则在仓库内的 `<repo>/.worktrees/upkeep/<run>`，并把该路径写入本 clone 的 `.git/info/exclude`。 |
 | `defaultBaseBranch` | `main` | preview 比较与 PR 目标分支。 |
 | `allowMerge` | `false` | 是否提供「合并」；每次合并仍需确认。 |
@@ -123,7 +125,9 @@ npm run verify:full  # 以上全部 + 包元数据 + profile 检查 + 真实 reg
 - **在 DSH `0.2.2-rc.3` 上验证**，声明范围 `>=0.2.2-rc.1 <0.3.0`。
 - **PR 路径需要宿主 `gh` CLI 已登录**；合并需要 `allowMerge` 与当次确认。不会无人值守地推送。
 - **link 安装服务 `dist/`。** 安装或重新加载前先构建；Host 改动需重启 Harness，客户端改动只需刷新页面。
-- **worktree 从 HEAD 开始。** 未提交的改动不会被复制；仓库脏时面板会提示。
+- **worktree 从 HEAD 开始。** 未提交的改动不会被复制；仓库脏时面板会提示。合并该 run 后会清理其 worktree 与分支。
+- **`git clean -xdf` 会删掉 worktree。** 它们在 checkout 里的 `.worktrees/` 下，只是被 ignore，并不受保护。
+- **构建工具应排除 `.worktrees`。** 不读 `.gitignore` 的监听器（某些 bundler、`tsc --watch`）会扫到嵌套的 checkout；请把它们加入排除列表。
 - **远端指南拉取需要网络。** 没有网络时只用安装版指南，并报告失败，不会隐藏。
 - **尚未发布到 npm。** 按上面的本地 checkout 方式安装。
 - **Desktop 独占运行中的 profile。** 应用打开时 CLI 无法组合 `--profile desktop`；全量测试脚本会把这一步标记为 skipped，而不是静默通过。

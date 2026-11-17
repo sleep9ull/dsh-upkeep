@@ -13,6 +13,10 @@
         concurrency: 2
         # Empty means <repo>/.worktrees/upkeep/<run>; the path is added to .git/info/exclude.
         worktreeRoot: ""
+        # Add the in-repo worktree directory to this clone's exclude file.
+        ignoreWorktrees: true
+        # How many upgrade worktrees to keep per repository; 0 keeps all.
+        worktreesToKeep: 5
         # Empty means "auto-detect from ~/.gitconfig and the gh login"; set an
         # explicit comma-separated list when those accounts do not identify you.
         ownerHandles: ""

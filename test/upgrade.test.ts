@@ -112,3 +112,70 @@ test('the in-repo worktree directory is ignored once, through .git/info/exclude'
   assert.equal(await ensureWorktreeIgnored(exec, root), false)
   assert.equal(readFileSync(join(gitDir, 'info', 'exclude'), 'utf8'), text)
 })
+
+test('pruning keeps the newest worktrees and never touches foreign ones', async () => {
+  const { pruneWorktrees } = await import('../dist/host/upgrade.js')
+  const listed = [
+    'worktree /repo/.worktrees/upkeep/c',
+    'HEAD abc',
+    'branch refs/heads/upkeep/plugin-c',
+    '',
+    'worktree /repo/.worktrees/upkeep/b',
+    'HEAD def',
+    'branch refs/heads/upkeep/plugin-b',
+    '',
+    'worktree /repo/.worktrees/upkeep/a',
+    'HEAD ghi',
+    'branch refs/heads/upkeep/plugin-a',
+    '',
+    'worktree /elsewhere/handmade',
+    'HEAD jkl',
+    'branch refs/heads/feature/x',
+  ].join('\n')
+
+  const calls: string[][] = []
+  const exec = {
+    run: async (command: string, args: string[]) => {
+      calls.push([command, ...args])
+      if (args[0] === 'worktree' && args[1] === 'list') return { exitCode: 0, stdout: listed, stderr: '', timedOut: false }
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
+    },
+  }
+
+  const removed = await pruneWorktrees(exec as never, '/repo', '/repo/.worktrees/upkeep', 1)
+  assert.deepEqual(removed, ['/repo/.worktrees/upkeep/b', '/repo/.worktrees/upkeep/a'])
+
+  const worktreeRemovals = calls.filter(call => call[1] === 'worktree' && call[2] === 'remove')
+  assert.equal(worktreeRemovals.length, 2)
+  assert.deepEqual(worktreeRemovals.map(call => call[4]), ['/repo/.worktrees/upkeep/b', '/repo/.worktrees/upkeep/a'])
+  const branchDeletions = calls.filter(call => call[1] === 'branch' && call[2] === '-D').map(call => call[3])
+  assert.deepEqual(branchDeletions, ['upkeep/plugin-b', 'upkeep/plugin-a'])
+  assert.ok(!calls.some(call => call.includes('/elsewhere/handmade')), 'a hand-made worktree is never a candidate')
+
+  // keep = 0 keeps everything
+  calls.length = 0
+  assert.deepEqual(await pruneWorktrees(exec as never, '/repo', '/repo/.worktrees/upkeep', 0), [])
+  assert.equal(calls.length, 0)
+})
+
+test('turning the ignore switch off warns instead of editing the clone', async () => {
+  const calls: string[][] = []
+  const exec = {
+    run: async (command: string, args: string[]) => {
+      calls.push([command, ...args])
+      if (args[0] === 'worktree') return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
+    },
+  }
+  const prepared = await prepareWorkspace({
+    exec: exec as never,
+    repoRoot: '/repo',
+    worktree: true,
+    worktreeRoot: '',
+    bundle: 'p',
+    stamp: 't1',
+    ignoreWorktree: false,
+  })
+  assert.ok(prepared.warnings.some(warning => /not ignored/.test(warning)))
+  assert.ok(!calls.some(call => call[1] === 'rev-parse' && call[2] === '--git-common-dir'), 'no exclude probe when disabled')
+})

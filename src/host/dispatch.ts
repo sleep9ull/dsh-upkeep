@@ -71,7 +71,10 @@ import {
   deriveVerifyCommands,
   inspectRepository,
   prepareWorkspace,
+  pruneWorktrees,
+  removeWorktreeAndBranch,
   verifyWorkspace,
+  worktreeParent,
   type UpgradeRunRecord,
 } from './upgrade.js'
 import { compareVersions, parseVersion } from './versions.js'
@@ -129,6 +132,10 @@ export interface HubConfig {
   scheduleIntervalHours: number
   /** Seconds before the one-shot task that starts an upgrade is deleted; 0 keeps it. */
   upgradeTaskCleanupSeconds: number
+  /** Whether the in-repo worktree directory is added to this clone's exclude file. */
+  ignoreWorktrees: boolean
+  /** How many upgrade worktrees to keep per repository; 0 keeps all. */
+  worktreesToKeep: number
   /** How many entries a check may inspect concurrently. */
   concurrency: number
   /** Directory under which upgrade worktrees are created; empty means the repository's sibling directory. */
@@ -188,6 +195,8 @@ export function normalizeConfig(raw: unknown): HubConfig {
     scheduleCwd: typeof config.scheduleCwd === 'string' ? config.scheduleCwd.trim() : '',
     scheduleIntervalHours: normalizeInteger(config.scheduleIntervalHours, 24, 1, 720),
     upgradeTaskCleanupSeconds: normalizeInteger(config.upgradeTaskCleanupSeconds, 10, 0, 3_600),
+    ignoreWorktrees: config.ignoreWorktrees !== false,
+    worktreesToKeep: normalizeInteger(config.worktreesToKeep, 5, 0, 50),
     concurrency: normalizeInteger(config.concurrency, 2, 1, 8),
     worktreeRoot: typeof config.worktreeRoot === 'string' ? config.worktreeRoot : '',
     ownerHandles: normalizeConfigList(config.ownerHandles),
@@ -899,9 +908,15 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
 
         const status = await buildSnapshot()
         const loaded = await loadGuides()
+        const warnings: string[] = []
         const analysis = await analyzeBundle(listing, loaded.guides)
         const manifest = readInstalledManifest(name, listing.base.source ?? undefined, profile?.dir, profile?.installAnchor)
         const verifyCommands = deriveVerifyCommands(config.verifyCommands, manifest)
+        const parent = worktreeParent(repo.repoRoot, config.worktreeRoot)
+        if (input.worktree === true) {
+          const pruned = await pruneWorktrees(exec, repo.repoRoot, parent, config.worktreesToKeep)
+          for (const path of pruned) warnings.push(`Removed an older worktree to stay within worktreesToKeep: ${path}`)
+        }
         const stamp = now().toString(36)
         const prepared = await prepareWorkspace({
           exec,
@@ -910,6 +925,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
           worktreeRoot: config.worktreeRoot,
           bundle: name,
           stamp,
+          ignoreWorktree: config.ignoreWorktrees,
         })
         const workspaceId = await registerWorkspace(prepared.workspacePath, `Upkeep: ${name}`)
         const prompt = buildUpgradePrompt({
@@ -938,7 +954,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
         }
         const current = readState(home)
         writeState(home, appendRun(current, run, config.runsToKeep))
-        const warnings = [...loaded.warnings, ...analysis.warnings, ...prepared.warnings]
+        warnings.push(...loaded.warnings, ...analysis.warnings, ...prepared.warnings)
 
         // Start the work immediately: the workspace API only seeds a draft, so the
         // prompt is delivered to a fresh Session in the prepared directory instead.
@@ -1086,11 +1102,22 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
         if (prUrl === undefined) throw new HubError('NO_PULL_REQUEST', 'This run has no pull request to merge.')
         const merged = await mergePullRequest(exec, run.workspacePath, { ref: prUrl, method: 'merge' })
         if (!merged.ok) throw new HubError('MERGE_FAILED', 'The pull request could not be merged.', merged.output.slice(-2_000))
+
+        // The work is merged: retire the worktree and its branch, keeping the record.
+        const cleanup: string[] = []
+        if (run.worktree && run.branch !== undefined) {
+          const repoRoot = await exec.run('git', ['rev-parse', '--git-common-dir'], { cwd: run.workspacePath, timeoutMs: 30_000 })
+          const common = repoRoot.stdout.trim()
+          const mainRepo = common === '' ? undefined : dirname(common.startsWith('/') ? common : join(run.workspacePath, common))
+          if (mainRepo !== undefined && await removeWorktreeAndBranch(exec, mainRepo, { path: run.workspacePath, branch: run.branch })) {
+            cleanup.push(run.workspacePath)
+          }
+        }
         const next = updateRun(current, runId, {
           delivery: { ...(run.delivery ?? { stage: 'merged' }), stage: 'merged', prUrl, mergedAt: now() },
         })
         writeState(home, next)
-        return { run: next.runs.find(entry => entry.id === runId) ?? run, mergedAt: now() }
+        return { run: next.runs.find(entry => entry.id === runId) ?? run, mergedAt: now(), cleanup }
       },
     },
     'schedule.create': {

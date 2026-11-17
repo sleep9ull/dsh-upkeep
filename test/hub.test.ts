@@ -813,3 +813,52 @@ test('a target that is not newer than the running DSH reports no migration items
   assert.equal(report.guideSource, 'none')
   assert.equal(report.matched.length, 0)
 })
+
+test('merging retires the worktree and its branch', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'upkeep-retire-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'upkeep-retire-profile-'))
+  const installDir = mkdtempSync(join(tmpdir(), 'upkeep-retire-runtime-'))
+  writeFileSync(join(installDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.2-rc.3' }))
+  const packageDir = join(profileDir, 'node_modules', '@sleep9ull', 'plugin')
+  mkdirSync(join(packageDir, 'src'), { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: '@sleep9ull/plugin', version: '1.0.0', engines: { dsh: '^0.2.2-rc.1' } }))
+  writeFileSync(join(packageDir, 'src', 'index.js'), 'void 0\n')
+
+  const calls: string[][] = []
+  const exec = {
+    run: async (command: string, args: string[]) => {
+      calls.push([command, ...args])
+      const ok = (stdout = '') => ({ exitCode: 0, stdout, stderr: '', timedOut: false })
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('upkeep/x\n')
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === '--git-common-dir') return ok(packageDir + '/.git\n')
+      if (command === 'git' && args[0] === 'rev-parse') return ok(packageDir + '\n')
+      if (command === 'git' && args[0] === 'remote') return ok('git@github.com:o/r.git\n')
+      if (command === 'git' && args[0] === 'status') return ok('')
+      if (command === 'gh' && args[0] === 'pr' && args[1] === 'create') return ok('https://github.com/o/r/pull/9\n')
+      return ok()
+    },
+  }
+  const hub = createHub(fakeContext({
+    bundles: [{ name: '@sleep9ull/plugin', version: '1.0.0', enabled: true, rows: [], source: 'link:' + packageDir }],
+    profileDir,
+    installAnchor: join(installDir, 'package.json'),
+    home,
+    workspaceRegistry: { create: async (path: string, title: string) => ({ id: 'ws-1', path, title }) },
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false, targetVersion: '0.2.2-rc.3', allowMerge: true }), {
+    home, startupCheck: false, now: () => 15_000, exec,
+  })
+
+  const prepared = await hub.call('upgrade.prepare', { bundle: '@sleep9ull/plugin', worktree: true, confirm: true }, { caller: 'client' }) as {
+    run: { id: string; workspacePath: string; branch?: string; worktree: boolean }
+  }
+  assert.equal(prepared.run.worktree, true)
+  assert.ok(prepared.run.branch?.startsWith('upkeep/'))
+
+  await hub.call('delivery.create-pr', { runId: prepared.run.id, confirm: true }, { caller: 'client' })
+  calls.length = 0
+  const merged = await hub.call('delivery.merge', { runId: prepared.run.id, confirm: true }, { caller: 'client' }) as { cleanup: string[] }
+
+  assert.deepEqual(merged.cleanup, [prepared.run.workspacePath])
+  assert.ok(calls.some(call => call[1] === 'worktree' && call[2] === 'remove' && call[4] === prepared.run.workspacePath))
+  assert.ok(calls.some(call => call[1] === 'branch' && call[2] === '-D' && call[3] === prepared.run.branch))
+})
