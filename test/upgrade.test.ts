@@ -41,7 +41,7 @@ test('the prompt carries versions, matched changes, rules and commands', () => {
   assert.match(prompt, /0\.2\.2-rc\.3 -> 0\.2\.3-rc\.1/)
   assert.match(prompt, /\[v0\.2\.2-rc\.1\] tools/)
   assert.match(prompt, /npm test/)
-  assert.match(prompt, /do not refactor/)
+  assert.match(prompt, /Do not fix, refactor, reformat/)
   assert.ok(prompt.length < 12_001)
 })
 
@@ -178,4 +178,21 @@ test('turning the ignore switch off warns instead of editing the clone', async (
   })
   assert.ok(prepared.warnings.some(warning => /not ignored/.test(warning)))
   assert.ok(!calls.some(call => call[1] === 'rev-parse' && call[2] === '--git-common-dir'), 'no exclude probe when disabled')
+})
+
+test('the prompt fences the scope to DSH compatibility and asks for P0/P1/P2 findings only', () => {
+  const prompt = buildUpgradePrompt({
+    bundle: '@a/b', repoPath: '/repo', workspacePath: '/repo/.worktrees/upkeep/t1',
+    from: '0.2.2-rc.3', to: '0.2.3-rc.1', matches: [], verifyCommands: ['npm test'],
+  })
+  // The boundary itself.
+  assert.match(prompt, /Scope: only what the DSH version change requires/)
+  assert.match(prompt, /Do not fix, refactor, reformat or "clean up" anything unrelated/)
+  assert.match(prompt, /Do not upgrade dependencies, rename APIs or restructure files/)
+  // The report: two sections, classified, no fixes.
+  assert.match(prompt, /### DSH compatibility changes/)
+  assert.match(prompt, /### Out-of-scope findings \(not fixed\)/)
+  assert.match(prompt, /\[P0\|P1\|P2\]/)
+  assert.match(prompt, /Describe the problem only. Do not propose or hint at a fix/)
+  assert.match(prompt, /do not estimate effort, and do not touch the code involved/)
 })

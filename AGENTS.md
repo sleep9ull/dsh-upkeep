@@ -74,7 +74,9 @@
 14. **归属判定有证据、可配置、未知就是未知。** `mine/other/unknown` 只能由 `src/host/owner.ts` 产出；每条判定带证据 token（`scope:`、`author:`、`repo:`、`remote:`、`local-checkout`、`no-metadata`），身份来自 `ownerHandles`/`ownerEmails` 配置、`~/.gitconfig` 与 gh 登录；没有信号时保持 `unknown`，绝不默认"是我的"。*检查：* owner 单测覆盖四类证据与"无元数据不猜测"；无身份时状态带警告且 `ownership` 全为 unknown。
 15. **目标版本不迷信 `latest`。** 目标版本只来自「配置的精确版本 / 桌面通道映射的 dist-tag / 已发布最大 semver」，`dist-tags.latest` 在 rc 周期会滞后；读到缓存标记 stale，读不到就是未知。*检查：* feed 单测覆盖 channel 映射、最大 semver 回退与 registry 失败回退。
 16. **报告只呈现有命中的条目。** `report.get` 与 `impact` 的每条命中都必须能指回具体的 `matchedSurfaces`；扫描与远端拉取都有上限，失败时降级为安装版指南并给出 warning，不假装完整。
-17. **同一时间只跑一个 check 或 upgrade。** 长操作必须先拿互斥锁，第二个调用返回 `BUSY`；状态文件只由一个操作写入。*检查：* dispatch 的 `exclusive()` 包裹 check 与 upgrade.prepare；并发调用返回稳定错误码。
+17. **升级只改 DSH 版本逼出来的改动。** 升级会话的范围只有「目标 DSH 版本变化导致的不兼容」；过程中发现的任何非 DSH 版本问题**只报告、不修**，按 P0/P1/P2 列出问题本身（不给修法、不估工、不碰相关代码）。*检查：* `buildUpgradePrompt` 含 Scope 与 "Do not fix, refactor…"、报告模板含 `[P0|P1|P2]` 与 "Do not propose or hint at a fix"，且 `test/upgrade.test.ts` 断言这些句子。
+
+18. **同一时间只跑一个 check 或 upgrade。** 长操作必须先拿互斥锁，第二个调用返回 `BUSY`；状态文件只由一个操作写入。*检查：* dispatch 的 `exclusive()` 包裹 check 与 upgrade.prepare；并发调用返回稳定错误码。
 
 ## 新增一个 operation
 
