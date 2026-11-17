@@ -99,7 +99,7 @@ Loader 行接受以下配置（括号内为默认值）：
 | `concurrency` | `2` | 一次检查并发处理多少插件（1–8）。 |
 | `verifyCommands` | `[]` | 「验证」执行的命令；留空从 package scripts 推导。 |
 | `runsToKeep` | `10` | 保留多少条升级运行记录。 |
-| `worktreeRoot` | `""` | worktree 创建目录；留空放在仓库旁边。 |
+| `worktreeRoot` | `""` | worktree 创建目录；留空则在仓库内的 `<repo>/.worktrees/upkeep/<run>`，并把该路径写入本 clone 的 `.git/info/exclude`。 |
 | `defaultBaseBranch` | `main` | preview 比较与 PR 目标分支。 |
 | `allowMerge` | `false` | 是否提供「合并」；每次合并仍需确认。 |
 | `ownerHandles` | `""` | 标识你本人的账号 handle；留空自动探测。 |

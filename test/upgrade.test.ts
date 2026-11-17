@@ -73,7 +73,8 @@ test('the checkout is used directly, or a worktree branch is created on request'
   const prepared = await prepareWorkspace({ exec, repoRoot: '/repo', worktree: true, worktreeRoot: '', bundle: '@sleep9ull/plugin', stamp: 't1' })
   assert.equal(prepared.worktree, true)
   assert.match(prepared.branch ?? '', /^upkeep\/sleep9ull-plugin-t1$/)
-  assert.equal(prepared.workspacePath, '/repo-upkeep/repo-t1')
+  assert.equal(prepared.workspacePath, '/repo/.worktrees/upkeep/t1')
+  assert.ok(calls.some(call => call[1] === 'rev-parse' && call[2] === '--git-common-dir'), 'the ignore rule was checked')
   assert.ok(calls.some(call => call[1] === 'worktree' && call[2] === 'add'))
 
   const failing = fakeExec((command, args) => (args[0] === 'worktree' ? result({ exitCode: 1, stderr: 'boom' }) : result()))
@@ -89,4 +90,25 @@ test('verification records each command and treats a non-zero exit as failure', 
   assert.equal(results[0]?.ok, true)
   assert.equal(results[1]?.ok, false)
   assert.match(results[1]?.output ?? '', /test failed/)
+})
+
+test('the in-repo worktree directory is ignored once, through .git/info/exclude', async () => {
+  const { mkdtempSync, mkdirSync, readFileSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { ensureWorktreeIgnored } = await import('../dist/host/upgrade.js')
+
+  const root = mkdtempSync(join(tmpdir(), 'upkeep-exclude-'))
+  const gitDir = join(root, '.git')
+  mkdirSync(join(gitDir, 'info'), { recursive: true })
+  writeFileSync(join(gitDir, 'info', 'exclude'), '# local ignores\n')
+
+  const exec = { run: async () => ({ exitCode: 0, stdout: '.git\n', stderr: '', timedOut: false }) }
+  assert.equal(await ensureWorktreeIgnored(exec, root), true)
+  const text = readFileSync(join(gitDir, 'info', 'exclude'), 'utf8')
+  assert.match(text, /^# local ignores\n\.worktrees\/\n$/)
+
+  // A second run finds the rule and leaves the file alone.
+  assert.equal(await ensureWorktreeIgnored(exec, root), false)
+  assert.equal(readFileSync(join(gitDir, 'info', 'exclude'), 'utf8'), text)
 })

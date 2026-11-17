@@ -99,7 +99,7 @@ The Loader row accepts the following configuration (defaults shown):
 | `concurrency` | `2` | How many plugins one check inspects at a time (1–8). |
 | `verifyCommands` | `[]` | Commands used by Verify; empty derives them from package scripts. |
 | `runsToKeep` | `10` | How many upgrade runs to retain. |
-| `worktreeRoot` | `""` | Where worktrees are created; empty means beside the repository. |
+| `worktreeRoot` | `""` | Where worktrees are created; empty means `<repo>/.worktrees/upkeep/<run>` inside the checkout, whose path is added to the clone's `.git/info/exclude`. |
 | `defaultBaseBranch` | `main` | Branch previews compare against and PRs target. |
 | `allowMerge` | `false` | Whether Merge is offered at all; every merge still asks. |
 | `ownerHandles` | `""` | Account handles that identify you; empty auto-detects. |

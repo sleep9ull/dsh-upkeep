@@ -5,7 +5,8 @@
  * Session, so approvals, interruption and the session log apply.
  */
 
-import { basename, join } from 'node:path'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { basename, isAbsolute, join } from 'node:path'
 
 import type { GuideMatch } from './match.js'
 import type { ExecRunner } from './exec.js'
@@ -104,6 +105,36 @@ export function deriveVerifyCommands(
   return commands.slice(0, 4)
 }
 
+/**
+ * Make sure the in-repo worktree directory is ignored by git.
+ *
+ * The worktree sits inside the checkout, so without an ignore rule it would show
+ * up as untracked there. The rule goes into the repository's own
+ * `.git/info/exclude` — local to this clone, never committed, and reversible.
+ * @returns whether this call wrote the rule (`false` when it was already ignored).
+ */
+export async function ensureWorktreeIgnored(exec: ExecRunner, repoRoot: string, entry = '.worktrees/'): Promise<boolean> {
+  const gitDir = await exec.run('git', ['rev-parse', '--git-common-dir'], { cwd: repoRoot, timeoutMs: 30_000 })
+  if (gitDir.exitCode !== 0) return false
+  const raw = gitDir.stdout.trim()
+  if (raw === '') return false
+  const excludePath = join(isAbsolute(raw) ? raw : join(repoRoot, raw), 'info', 'exclude')
+  let current = ''
+  try {
+    current = existsSync(excludePath) ? readFileSync(excludePath, 'utf8') : ''
+  } catch {
+    return false
+  }
+  if (current.split('\n').some(line => line.trim() === entry)) return false
+  try {
+    const prefix = current === '' || current.endsWith('\n') ? current : current + '\n'
+    writeFileSync(excludePath, prefix + entry + '\n')
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Whether a path is the root of a git work tree, and the dirty file count. */
 export async function inspectRepository(exec: ExecRunner, path: string): Promise<{ repoRoot: string; dirty: number } | undefined> {
   const root = await exec.run('git', ['rev-parse', '--show-toplevel'], { cwd: path, timeoutMs: 30_000 })
@@ -129,8 +160,17 @@ export async function prepareWorkspace(input: {
   if (!input.worktree) return { workspacePath: input.repoRoot, worktree: false, warnings }
   const safe = input.bundle.replace(/[^a-z0-9-]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'plugin'
   const branch = `upkeep/${safe}-${input.stamp}`
-  const parent = input.worktreeRoot.trim() === '' ? `${input.repoRoot}-upkeep` : input.worktreeRoot
-  const workspacePath = join(parent, `${basename(input.repoRoot)}-${input.stamp}`)
+  // Inside the checkout by default, under .worktrees/upkeep/<stamp>; a configured
+  // root keeps the plugin's own folder name so several repos can share it.
+  const parent = input.worktreeRoot.trim() === ''
+    ? join(input.repoRoot, '.worktrees', 'upkeep')
+    : input.worktreeRoot
+  const workspacePath = input.worktreeRoot.trim() === ''
+    ? join(parent, input.stamp)
+    : join(parent, `${basename(input.repoRoot)}-${input.stamp}`)
+  if (input.worktreeRoot.trim() === '' && await ensureWorktreeIgnored(input.exec, input.repoRoot)) {
+    warnings.push('Added .worktrees/ to this clone’s .git/info/exclude so the main checkout stays clean.')
+  }
   const added = await input.exec.run('git', ['worktree', 'add', '-b', branch, workspacePath, 'HEAD'], {
     cwd: input.repoRoot,
     timeoutMs: 120_000,

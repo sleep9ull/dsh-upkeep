@@ -320,7 +320,7 @@ test('upgrade.prepare gated by confirm, registers a workspace, and verify record
   }
   assert.equal(prepared.run.workspaceId, 'ws-1')
   assert.equal(prepared.run.worktree, true)
-  assert.match(prepared.run.workspacePath, /-upkeep/)
+  assert.match(prepared.run.workspacePath, /[\\/]\.worktrees[\\/]upkeep[\\/]/)
   assert.match(prepared.run.prompt, /@sleep9ull\/plugin/)
   assert.match(prepared.run.prompt, /npm test/)
   // The panel renders these; they must exist even when everything succeeded.
