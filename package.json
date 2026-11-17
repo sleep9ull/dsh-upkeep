@@ -27,7 +27,8 @@
     "README.zh.md",
     "LICENSE",
     "CHANGELOG.md",
-    "scripts/full-test.mjs"
+    "scripts/full-test.mjs",
+    "docs/SECURITY.md"
   ],
   "publishConfig": {
     "access": "public"
@@ -63,7 +64,9 @@
     "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "test": "npm run build && tsc -p tsconfig.test.json && node --test dist-test/*.test.js && node --check dist/client.js",
     "verify": "npm run check && npm test",
-    "verify:full": "node scripts/full-test.mjs"
+    "verify:full": "node scripts/full-test.mjs",
+    "verify:pack": "node scripts/pack-check.mjs",
+    "verify:everything": "npm run verify && npm run verify:pack"
   },
   "author": "sleep9ull",
   "homepage": "https://github.com/sleep9ull/dsh-upkeep#readme",

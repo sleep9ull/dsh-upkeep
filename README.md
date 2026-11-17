@@ -114,11 +114,17 @@ The Loader row accepts the following configuration (defaults shown):
 
 ```sh
 npm install
+npm run verify       # repository checkout
+npm run verify:pack  # the tarball npm would publish, installed into a throwaway profile
 npm run verify       # type-check both halves, build, every test, and a headless render of the panel
 npm run verify:full  # everything above + package metadata + profile check + real registry read
 ```
 
 `docs/PLAN.md` holds the design and decisions, `docs/EVIDENCE.md` the verified DSH facts this plugin is built on, and `AGENTS.md` the engineering contract. State lives in `$DSH_HOME/upkeep/state.json` (versioned, atomic, bounded; losing it costs a re-check, never behaviour).
+
+## What it touches on your machine
+
+Upkeep reads your installed plugins, and on request prepares an upgrade of one repository you own. It talks to the npm registry and GitHub for metadata, writes `$DSH_HOME/upkeep/state.json`, creates `<repo>/.worktrees/upkeep/<run>` for isolated upgrades, and runs `git`/`gh` plus your configured verification commands. It never edits your source and never commits or pushes without your confirmation. The full list, including how to uninstall cleanly, is in [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Notes and limitations
 

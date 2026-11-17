@@ -114,11 +114,17 @@ Loader 行接受以下配置（括号内为默认值）：
 
 ```sh
 npm install
+npm run verify       # 仓库 checkout
+npm run verify:pack  # npm 会发布的 tarball，装进一次性 profile 验证
 npm run verify       # 两端类型检查、构建、全部测试，以及面板的无头渲染
 npm run verify:full  # 以上全部 + 包元数据 + profile 检查 + 真实 registry 读取
 ```
 
 架构与决策在 `docs/PLAN.md`，经过核实的 DSH 事实在 `docs/EVIDENCE.md`，工程契约在 `AGENTS.md`。状态保存在 `$DSH_HOME/upkeep/state.json`（版本化、原子写、有界；丢失只损失一次重新检查，不影响行为）。
+
+## 它会碰你机器上的什么
+
+Upkeep 读取已安装的插件，并在你要求时为你自己的某个仓库准备升级。它会访问 npm registry 与 GitHub 取元数据，写入 `$DSH_HOME/upkeep/state.json`，为隔离升级创建 `<repo>/.worktrees/upkeep/<run>`，并运行 `git`/`gh` 与你配置的验证命令。它不会改你的源码，也不会在你确认前提交或推送。完整清单与干净卸载步骤见 [docs/SECURITY.md](docs/SECURITY.md)。
 
 ## 注意事项
 
