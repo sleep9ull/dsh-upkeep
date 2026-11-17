@@ -332,6 +332,7 @@ interface Window {
         prCreated: 'Pull request created:',
         mergeDone: 'Pull request merged.',
         scheduled: 'Scheduled',
+        actions: 'Actions',
         create: 'Create',
         save: 'Save',
         cancel: 'Cancel',
@@ -424,6 +425,7 @@ interface Window {
         prCreated: 'PR 已创建：',
         mergeDone: 'PR 已合并。',
         scheduled: '定时',
+        actions: '操作',
         create: '创建',
         save: '保存',
         cancel: '取消',
@@ -552,12 +554,15 @@ interface Window {
 [data-upkeep] .upkeep-col-version { width: 84px; }
 [data-upkeep] .upkeep-col-status { width: 168px; }
 [data-upkeep] .upkeep-col-scheduled { width: 140px; }
+[data-upkeep] .upkeep-col-actions { width: 96px; }
 [data-upkeep] .upkeep-table th.upkeep-col-version,
 [data-upkeep] .upkeep-table td.upkeep-col-version,
 [data-upkeep] .upkeep-table th.upkeep-col-status,
 [data-upkeep] .upkeep-table td.upkeep-col-status,
 [data-upkeep] .upkeep-table th.upkeep-col-scheduled,
-[data-upkeep] .upkeep-table td.upkeep-col-scheduled { text-align: center; }
+[data-upkeep] .upkeep-table td.upkeep-col-scheduled,
+[data-upkeep] .upkeep-table th.upkeep-col-actions,
+[data-upkeep] .upkeep-table td.upkeep-col-actions { text-align: center; }
 [data-upkeep] .upkeep-care { display: flex; align-items: center; justify-content: center; gap: 6px; }
 [data-upkeep] .upkeep-table td.upkeep-scheduled { white-space: nowrap; }
 
@@ -824,7 +829,10 @@ interface Window {
           h('th', { key: 'version', className: 'upkeep-col-version' }, t('version')),
           h('th', { key: 'status', className: 'upkeep-col-status' }, t('status')),
         ]
-        if (options.mine) headers.push(h('th', { key: 'scheduled', className: 'upkeep-col-scheduled' }, t('scheduled')))
+        if (options.mine) {
+          headers.push(h('th', { key: 'scheduled', className: 'upkeep-col-scheduled' }, t('scheduled')))
+          headers.push(h('th', { key: 'actions', className: 'upkeep-col-actions' }, t('actions')))
+        }
 
         return h('div', { className: 'upkeep-table-scroll' },
           h('table', { className: 'upkeep-table' },
@@ -866,14 +874,7 @@ interface Window {
                     h('span', { title: detail }, bundle.name || t('unknown'))),
                   h('td', { key: 'version', className: 'upkeep-col-version' }, h('span', { className: 'upkeep-version' }, bundle.version || '—')),
                   h('td', { key: 'status', className: 'upkeep-care upkeep-col-status' },
-                    options.mine ? careChip(bundle, t) : chip(status.label, status.state),
-                    eligible && options.onUpgrade
-                      ? h('button', {
-                          className: 'upkeep-btn upkeep-btn-xs',
-                          type: 'button',
-                          onClick: () => options.onUpgrade?.(bundle),
-                        }, t('upgrade'))
-                      : null),
+                    options.mine ? careChip(bundle, t) : chip(status.label, status.state)),
                 ]
                 if (options.mine) {
                   const name = typeof bundle.name === 'string' ? bundle.name : ''
@@ -896,6 +897,16 @@ interface Window {
                             onClick: () => options.onSchedule?.(bundle),
                           }, t('create'))
                         : h('span', { className: 'upkeep-muted' }, '—')))
+                }
+                if (options.mine) {
+                  cells.push(h('td', { key: 'actions', className: 'upkeep-col-actions' },
+                    eligible && options.onUpgrade
+                      ? h('button', {
+                          className: 'upkeep-btn upkeep-btn-xs',
+                          type: 'button',
+                          onClick: () => options.onUpgrade?.(bundle),
+                        }, t('upgrade'))
+                      : h('span', { className: 'upkeep-muted' }, '—')))
                 }
                 return h('tr', { key: (bundle.name || 'bundle') + '-' + index, 'data-care': care }, ...cells)
               }))))

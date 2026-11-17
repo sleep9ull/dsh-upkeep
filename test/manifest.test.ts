@@ -118,6 +118,9 @@ test('client bundle registers the fixed sidebar panel, its icon, and the setting
   assert.match(client, /\.upkeep-col-version \{ width: 84px; \}/)
   assert.match(client, /\.upkeep-col-status \{ width: 168px; \}/)
   assert.match(client, /\.upkeep-col-scheduled \{ width: 140px; \}/)
+  // Upkeep lives in its own Actions column, not inside the status cell.
+  assert.match(client, /\.upkeep-col-actions \{ width: 96px; \}/)
+  assert.match(client, /key: 'actions'/)
   // Controls follow the host metrics: a 28px row, radius-sm, a hairline border.
   assert.match(client, /height: 28px; margin: 0; padding: 0 10px; border: \.5px solid/)
   assert.match(client, /--dsw-radius-sm, 6px/)

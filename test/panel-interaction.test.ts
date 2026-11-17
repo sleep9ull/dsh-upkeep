@@ -221,7 +221,7 @@ test('pressing Upgrade opens the preparation dialog and carries the worktree cho
   const { store, upgrades } = fakeStore(true)
   const { container, root } = mount(store)
 
-  const upgrade = container.querySelector('.upkeep-care button')
+  const upgrade = container.querySelector('.upkeep-col-actions button')
   assert.ok(upgrade !== null, 'a plugin that needs care offers Upgrade')
   assert.equal(upgrade.textContent, 'Upgrade')
 
@@ -251,7 +251,7 @@ test('Cancel closes a dialog without calling the Host', () => {
   const { store, upgrades } = fakeStore(true)
   const { container, root } = mount(store)
 
-  const upgrade = container.querySelector('.upkeep-care button')
+  const upgrade = container.querySelector('.upkeep-col-actions button')
   assert.ok(upgrade !== null)
   click(upgrade)
   const cancel = container.querySelector('.upkeep-modal-actions .upkeep-btn') as HTMLElement
