@@ -42,8 +42,22 @@ export function apply(ctx: HostContext, config: unknown): void {
 
   const routes = registerRpc(ctx, hub)
 
+  // The tools registry can be mounted by a sibling Loader row that is still
+  // starting when this row applies (the Loader starts siblings concurrently),
+  // so fall back to `ctx.inject`: the tool then appears with the registry
+  // instead of silently never existing for the life of the process.
+  let toolFace: 'on' | 'deferred' | 'off' = 'off'
   const tools = toolRegistry(ctx.get('tools'))
-  if (tools) registerTool(ctx, tools, hub)
+  if (tools) {
+    registerTool(ctx, tools, hub)
+    toolFace = 'on'
+  } else if (typeof ctx.inject === 'function') {
+    toolFace = 'deferred'
+    ctx.inject(['tools'], (scoped) => {
+      const late = toolRegistry(scoped.get('tools'))
+      if (late) registerTool(scoped, late, hub)
+    })
+  }
 
-  ctx.logger?.info?.(`upkeep ready: ${routes} rpc route(s), tool=${tools ? 'on' : 'off'}, channel=${resolved.targetChannel}`)
+  ctx.logger?.info?.(`upkeep ready: ${routes} rpc route(s), tool=${toolFace}, channel=${resolved.targetChannel}`)
 }

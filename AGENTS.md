@@ -79,6 +79,8 @@
 
 18. **同一时间只跑一个 check 或 upgrade。** 长操作必须先拿互斥锁，第二个调用返回 `BUSY`；状态文件只由一个操作写入。*检查：* dispatch 的 `exclusive()` 包裹 check 与 upgrade.prepare；并发调用返回稳定错误码。
 
+19. **服务按调用解析，不在 apply 时缓存。** Loader 并发启动同一组的兄弟行，`apply` 时别的行可能还没提供 `pluginManager` / `tools` / `schedule`；apply 时捕获的 `undefined` 会永久留在进程里（0.2.3-alpha.2 上就是这样：面板全空、`upkeep_status` 未注册）。只读服务每次 `ctx.get`；需要在服务出现时注册的东西用 `ctx.inject([...], …)`。*检查：* `createHub` 没有 apply 时捕获的服务引用；重载插件后 `upkeep_status` 出现在 `Tool.listTools`；服务真的缺席时降级为"未知 + 原因"而不是空列表（§12）。
+
 ## 新增一个 operation
 
 按顺序做，每步都有验收点。

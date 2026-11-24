@@ -30,6 +30,12 @@ export interface HostContext {
   effect(setup: () => (() => void) | void, label?: string): unknown
   /** Subscribe to a Host event. */
   on(event: string, handler: (...args: unknown[]) => unknown): unknown
+  /**
+   * Run `callback` in a child plugin once every named service is mounted
+   * (Cordis `ctx.inject`, shorthand for `ctx.plugin({ inject, apply })`).
+   * Used for services a sibling Loader row may provide after this row applies.
+   */
+  inject?(deps: string[], callback: (ctx: HostContext) => void): unknown
   logger?: HostLogger
 }
 

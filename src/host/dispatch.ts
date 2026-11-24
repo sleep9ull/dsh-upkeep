@@ -518,7 +518,16 @@ function targetFromState(config: HubConfig, state: UpkeepState, now: number): Ta
  */
 export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {}): Hub {
   const profile = profileContext(ctx)
-  const manager = pluginManager(ctx)
+  /**
+   * Resolve the plugin manager per call, never at `apply` time.
+   *
+   * The Loader starts sibling rows concurrently, so a service another row
+   * provides can still be missing while this row's `apply` runs — and a
+   * reference captured then would stay `undefined` for the whole process,
+   * reporting "not mounted" while `listBundles()` works moments later. Reading
+   * it per call also follows a manager replaced by a profile edit.
+   */
+  const managerOf = () => pluginManager(ctx)
   const now = deps.now ?? (() => Date.now())
   const home = deps.home ?? profile?.home ?? homedir()
   const ownerIdentity: OwnerIdentity = resolveOwnerIdentity({
@@ -615,6 +624,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
 
   /** Resolve one monitored bundle listing by package name. */
   async function monitoredListing(name: string): Promise<BundleListing | undefined> {
+    const manager = managerOf()
     if (manager === undefined) return undefined
     let listed: unknown[] = []
     try {
@@ -746,6 +756,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
     }
 
     let listings: BundleListing[] = []
+    const manager = managerOf()
     if (manager) {
       try {
         const listed = await manager.listBundles()
@@ -870,7 +881,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
       snapshot.warnings.push(...loaded.warnings)
       let listed: BundleListing[] = []
       try {
-        listed = ((await manager?.listBundles()) ?? []).map(readBundleListing).filter((entry): entry is BundleListing => entry !== undefined)
+        listed = ((await managerOf()?.listBundles()) ?? []).map(readBundleListing).filter((entry): entry is BundleListing => entry !== undefined)
       } catch {
         listed = []
       }
@@ -937,6 +948,7 @@ export function createHub(ctx: HostContext, config: HubConfig, deps: HubDeps = {
       run: async (input) => {
         const name = typeof input.bundle === 'string' ? input.bundle.trim() : ''
         if (name === '') throw new HubError('INVALID_INPUT', 'report.get needs a bundle name')
+        const manager = managerOf()
         const listed = manager
           ? (await manager.listBundles()).map(readBundleListing).filter((entry): entry is BundleListing => entry !== undefined)
           : []

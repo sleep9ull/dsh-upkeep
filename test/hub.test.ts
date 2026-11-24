@@ -12,7 +12,7 @@ const TEST_HOME = mkdtempSync(join(tmpdir(), 'upkeep-hub-'))
 const TEST_DEPS = { home: TEST_HOME, startupCheck: false as const }
 
 /** A fake Host context exposing only the services a status read touches. */
-function fakeContext(overrides: { bundles?: unknown[]; plugins?: unknown[]; installAnchor?: string; profileDir?: string; home?: string; failBundles?: boolean; workspaceRegistry?: unknown; schedule?: unknown } = {}): HostContext {
+function fakeContext(overrides: { bundles?: unknown[]; plugins?: unknown[]; installAnchor?: string; profileDir?: string; home?: string; failBundles?: boolean; workspaceRegistry?: unknown; schedule?: unknown; managerMounted?: () => boolean } = {}): HostContext {
   return {
     get(name: string) {
       if (name === 'profileContext') {
@@ -26,6 +26,7 @@ function fakeContext(overrides: { bundles?: unknown[]; plugins?: unknown[]; inst
       if (name === 'workspaceRegistry') return overrides.workspaceRegistry
     if (name === 'schedule') return overrides.schedule
       if (name === 'pluginManager') {
+        if (overrides.managerMounted?.() === false) return undefined
         return {
           listBundles: async () => {
             if (overrides.failBundles === true) throw new Error('manager unavailable')
@@ -81,6 +82,26 @@ test('status degrades with warnings instead of throwing', async () => {
   assert.equal(status.bundles.length, 0)
   assert.equal(status.warnings.length, 1)
   assert.match(status.warnings[0] ?? '', /could not be listed/)
+})
+
+test('a plugin manager mounted after apply is read on the next call', async () => {
+  // The Loader starts sibling rows concurrently: a service another row provides
+  // can appear after this plugin's apply, so the Hub must not capture it then.
+  let mounted = false
+  const hub = createHub(fakeContext({
+    managerMounted: () => mounted,
+    bundles: [{ name: 'dsh-context', version: '0.84.1', enabled: true, official: false, availability: 'profile', rows: [{ entryId: 'context' }] }],
+    plugins: [{ moduleName: 'dsh-context', entryId: 'context', fiberPhase: 'active' }],
+  }), normalizeConfig({ ownerHandles: 'sleep9ull', autoDetectOwner: false }), TEST_DEPS)
+
+  const before = await hub.call('status', {}, { caller: 'client' }) as { bundles: unknown[]; warnings: string[] }
+  assert.equal(before.bundles.length, 0)
+  assert.match(before.warnings.join('\n'), /plugin manager service is not mounted/i)
+
+  mounted = true
+  const after = await hub.call('status', {}, { caller: 'client' }) as { bundles: Array<{ name: string }>; warnings: string[] }
+  assert.deepEqual(after.bundles.map(bundle => bundle.name), ['dsh-context'])
+  assert.deepEqual(after.warnings, [])
 })
 
 test('official @deepseek-ai packages are excluded and reported, not silently dropped', async () => {

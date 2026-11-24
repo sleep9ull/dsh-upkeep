@@ -1,5 +1,8 @@
 # 事实与证据（DSH 0.2.2-rc.3，本机 Desktop 安装）
 
+> 2026-11-24：本机升级到 **0.2.3-alpha.2** 后复核了 §10（新增）；其余条目仍按 0.2.2-rc.3 记录，
+> 尚未逐条在 alpha 上重验。
+
 本文只记录**已核实**的事实，供实现时对照。路径缩写：
 
 - `R` = `/Applications/DeepSeek Harness.app/Contents/Resources/app.asar/dsh/node_modules/@deepseek-ai`
@@ -112,6 +115,15 @@
 | 包根本身由 DSH 从 profile 解析（`bundleManifest(name, profile.dir, installAnchor)`），与 `source` 无关；`source` 只是安装规格的回显 | `R/dsh-plugin-manager/src/index.ts:554` |
 | 插件可 peer 声明 DSH 包以共享安装版实例（linked checkout 场景） | `D/user/develop/basic/publish.md:105-107` |
 | 装包后确认生效看 `application`/`warnings`，不看日志或进程 | `dsh-doc/references/plugin-development.md:20` |
+
+## 10. Loader 启动顺序与服务可用性（0.2.3-alpha.2 复核）
+
+| 事实 | 证据 |
+|---|---|
+| 同一 `EntryGroup` 内的兄弟行**并发**启动：`update()` 对每个 id 执行 `await Promise.all(...)` | `R/cordis-plugin-loader/src/config/group.ts:95-103` |
+| 一行只在**自己 `inject` 里的服务**就绪后变 ACTIVE；其它服务此时可能仍未挂载 | `R/cordis/src/fiber.ts:639-650`（`_refresh` 只遍历 `this.inject`）；`R/cordis/src/registry.ts:330`（`Inject.resolve(plugin.inject)`） |
+| `ctx.inject(deps, callback)` 是 `ctx.plugin({ inject, apply: callback })` 的简写：依赖就绪才运行，依赖变化时重跑 | `R/cordis/src/registry.ts:169-176,296-301`；`dsh-doc/references/practices.md:20` |
+| 因此 **`apply` 时 `ctx.get(name)` 可能是 `undefined`**：本机 0.2.3-alpha.2 实测 `upkeep` 行 apply 时 `pluginManager` 与 `tools` 都未挂载（面板警告 "The plugin manager service is not mounted"、`Tool.listTools` 无 `upkeep_status`），而同一进程稍后 `listPlugins()` 返回 231 条、`listBundles()` 返回 5 个 bundle；重载该行后两者都恢复 | 实测 2026-11-24（`~/.dsh/upkeep/state.json` 的 11:00 检查）；修复见 `src/host/dispatch.ts` 的 `managerOf` 与 `src/index.ts` 的 `ctx.inject(['tools'], …)` |
 
 ## 客户端模块表与 primitives 的可达性（0.2.2-rc.3）
 
