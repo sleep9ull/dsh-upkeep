@@ -2,12 +2,12 @@
 
 [English](README.md) · **简体中文**
 
-![Version](https://img.shields.io/badge/version-0.1.1-blue)
+![Version](https://img.shields.io/badge/version-0.1.2-blue)
 [![npm](https://img.shields.io/npm/v/@sleep9ull/dsh-upkeep?label=npm)](https://www.npmjs.com/package/@sleep9ull/dsh-upkeep)
 ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.3-4b8bbe)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-> **状态：`0.1.1`，早期版本。** 包名是 **`@sleep9ull/dsh-upkeep`**：
+> **状态：`0.1.2`，早期版本。** 包名是 **`@sleep9ull/dsh-upkeep`**：
 > `dsh plugin --profile <name> add @sleep9ull/dsh-upkeep`。
 > 已在 **macOS 上的 DSH `0.2.2-rc.3`** 端到端验证，支持中英文：监测、升级准备与会话、
 > 验证、创建 PR、定时检查。

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.2
 
 - **The panel no longer starts empty because a sibling row was still booting.** The Loader starts rows in the same group concurrently, so `pluginManager` and `tools` can be missing while this plugin's `apply` runs — and a reference captured then stayed `undefined` for the whole process. The panel showed "The plugin manager service is not mounted; installed bundles are unknown" with zero bundles, and `upkeep_status` was never registered, while `listBundles()` worked moments later. The plugin manager is now resolved per call, and the tool face registers through `ctx.inject(['tools'], …)` once the registry appears.
 
